@@ -49,6 +49,10 @@ El script:
    http://<ip-de-tu-servidor>:8080
    ```
 
+   Usuario y contraseña **por defecto**: `admin` / `admin`. Cámbialos cuanto
+   antes desde el propio panel (botón **⚙ Configuración**, arriba a la
+   derecha) — no hace falta editar ningún archivo ni reiniciar el contenedor.
+
 ### Opción 3: Imagen ya construida (`docker pull`)
 
 ```bash

@@ -61,7 +61,7 @@ Rellena en `.env`:
 - `MEDIAMTX_API` — con el nombre real de tu contenedor MediaMTX (puerto API, normalmente 9997).
 - `MEDIAMTX_NETWORK` — la red obtenida en el paso 2.
 - `MEDIAMTX_DATA_VOLUME` — el volumen obtenido en el paso 2.
-- `AUTH_USERNAME` / `AUTH_PASSWORD` — las credenciales de acceso al panel. **Cambia la contraseña de ejemplo.**
+- `AUTH_USERNAME` / `AUTH_PASSWORD` — credenciales **iniciales** de acceso al panel (por defecto `admin` / `admin`). Solo se usan la primera vez que arranca; después se guardan aparte y se pueden cambiar desde el propio panel sin volver a tocar este archivo (ver paso 5).
 - `MANAGER_PORT` — puerto donde quieres exponer el panel (por defecto 8080).
 
 ### 4. Despliega
@@ -80,7 +80,10 @@ código: `docker compose up -d --build`.
 http://<ip-de-tu-servidor>:<MANAGER_PORT>
 ```
 
-Inicia sesión con el usuario y contraseña que configuraste en `.env`.
+Inicia sesión con `admin` / `admin` (o los valores que hayas puesto en
+`.env`). **Cámbialos cuanto antes** desde el botón **⚙ Configuración** del
+propio panel — no hace falta editar ningún archivo ni reiniciar el
+contenedor, el cambio queda guardado.
 
 ## Actualizar a una versión nueva
 
@@ -95,6 +98,6 @@ docker compose up -d
 |---|---|
 | El panel no conecta con MediaMTX | `MEDIAMTX_API` apunta a un contenedor/puerto incorrecto. Revisa el nombre con `docker ps`. |
 | Error al arrancar por red/volumen inexistente | `MEDIAMTX_NETWORK` o `MEDIAMTX_DATA_VOLUME` no coinciden con los reales. Repite el paso 2. |
-| No recuerdas la contraseña generada automáticamente | Si dejaste `AUTH_PASSWORD` vacío, revisa `docker logs mediamtx-manager` justo después de arrancar — se imprime una sola vez. |
+| No recuerdas la contraseña que pusiste desde el panel | No hay forma de recuperarla desde la interfaz. Bórrala del volumen de datos y reinicia para volver a `admin`/`admin` (o lo que pongas en `.env`): `docker exec mediamtx-manager rm /data/.manager_credentials.json && docker restart mediamtx-manager` |
 
 Para más detalles sobre las funciones del panel, consulta el [README principal](../README.md).
