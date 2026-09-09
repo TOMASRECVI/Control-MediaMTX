@@ -477,6 +477,37 @@ def patch_defaults():
         return jsonify({'error': str(e)}), 502
 
 
+# ─── Configuración global (logs) ──────────────────────────────────────────────
+
+@app.route('/api/config/global')
+def get_global_config():
+    """Devuelve la config global de MediaMTX (incluye logLevel/logDestinations/logFile)."""
+    try:
+        r = http_requests.get(f'{MEDIAMTX_API}/v3/config/global/get', timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        return jsonify(r.json())
+    except http_requests.exceptions.RequestException as e:
+        logger.error(f'Error fetching global config: {e}')
+        return jsonify({'error': str(e)}), 502
+
+
+@app.route('/api/config/global', methods=['PATCH'])
+def patch_global_config():
+    """Actualiza config global. Uso típico: logLevel, logDestinations, logFile."""
+    body = request.json or {}
+    try:
+        r = http_requests.patch(
+            f'{MEDIAMTX_API}/v3/config/global/patch',
+            json=body,
+            timeout=REQUEST_TIMEOUT
+        )
+        r.raise_for_status()
+        return jsonify({'success': True, **body})
+    except http_requests.exceptions.RequestException as e:
+        logger.error(f'Error patching global config: {e}')
+        return jsonify({'error': str(e)}), 502
+
+
 # ─── Per-Path Configuration ──────────────────────────────────────────────────
 
 @app.route('/api/config/paths/<path:name>', methods=['PATCH'])

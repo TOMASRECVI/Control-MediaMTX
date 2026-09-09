@@ -8,9 +8,13 @@
 #    3. docker compose up -d --build
 #    4. Abre http://192.168.1.147:8080 en el navegador
 #
-#  NOTA: Tu contenedor MediaMTX se llama "mediamtx-mediamtx-1"
-#        y usa la red "mediamtx_default". Si los tuyos son diferentes,
-#        cambia MEDIAMTX_API y la red abajo.
+#  NOTA sobre MEDIAMTX_API: se usa la IP del propio servidor (no el nombre
+#        del contenedor) porque el puerto 9997 de MediaMTX ya está publicado
+#        en el host. Funciona sin importar en qué red Docker esté este
+#        contenedor -- a diferencia de usar el nombre del contenedor, que
+#        solo resuelve si ambos están en la misma red de Docker.
+#        Solo se usa la PRIMERA vez que arranca: después se puede cambiar
+#        desde el propio panel (⚙ Configuración) sin tocar este archivo.
 # ------------------------------------------------------------------
 
 services:
@@ -21,9 +25,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Apunta a la API de MediaMTX.
-      # "mediamtx-mediamtx-1" es el nombre del contenedor MediaMTX.
-      MEDIAMTX_API: "http://mediamtx-mediamtx-1:9997"
+      # IP del servidor + puerto de la API de MediaMTX (9997, publicado en el host).
+      MEDIAMTX_API: "http://192.168.1.147:9997"
       # Credenciales iniciales de acceso al panel (usuario: admin / admin).
       # Solo se usan la PRIMERA vez que arranca; después se pueden cambiar
       # desde el propio panel (⚙ Configuración) y quedan guardadas en el

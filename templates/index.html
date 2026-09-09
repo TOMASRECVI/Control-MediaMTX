@@ -233,6 +233,12 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
     <div id="controlContent"><div class="loader"><div class="spinner"></div></div></div>
   </div>
 
+  <!-- Logs Control -->
+  <div class="card" id="logsCard">
+    <h2>&#128220; Registros (logs)</h2>
+    <div id="logsContent"><div class="loader"><div class="spinner"></div></div></div>
+  </div>
+
   <!-- Selection bar (hidden by default) -->
   <div class="selection-bar" id="selectionBar" style="display:none">
     <span class="count" id="selCount">0 seleccionados</span>
@@ -739,13 +745,15 @@ function allowReconnect(streamName) {
 // como "20h0m0s" no coincidía con ningún patrón y siempre se mostraba el
 // valor por defecto (24 horas) en vez del real.
 function parseGoDuration(raw, fallbackValue, fallbackUnit) {
-  const m = (raw || '').match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
-  if (!m || (!m[1] && !m[2] && !m[3])) return { value: fallbackValue, unit: fallbackUnit };
-  const h = parseInt(m[1] || '0', 10), min = parseInt(m[2] || '0', 10), s = parseInt(m[3] || '0', 10);
-  if (h === 0 && min === 0) return { value: s, unit: 's' };
-  if (h === 0) return { value: min, unit: 'm' };
-  if (min === 0 && s === 0) return { value: h, unit: 'h' };
-  return { value: h * 60 + min, unit: 'm' }; // mezcla h+m: lo expresamos todo en minutos
+  // MediaMTX admite además "d" (días), que Go no tiene de forma nativa.
+  const m = (raw || '').match(/^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!m || (!m[1] && !m[2] && !m[3] && !m[4])) return { value: fallbackValue, unit: fallbackUnit };
+  const d = parseInt(m[1] || '0', 10), h = parseInt(m[2] || '0', 10), min = parseInt(m[3] || '0', 10), s = parseInt(m[4] || '0', 10);
+  if (d > 0 && h === 0 && min === 0 && s === 0) return { value: d * 24, unit: 'h' }; // sin unidad "días" en el selector: lo expresamos en horas
+  if (h === 0 && min === 0 && d === 0) return { value: s, unit: 's' };
+  if (h === 0 && d === 0) return { value: min, unit: 'm' };
+  if (min === 0 && s === 0 && d === 0) return { value: h, unit: 'h' };
+  return { value: d * 1440 + h * 60 + min, unit: 'm' }; // mezcla de unidades: todo en minutos
 }
 
 function durationUnitOptions(selectedUnit) {
@@ -765,9 +773,23 @@ async function loadControl() {
     const seg = parseGoDuration(cfg.recordSegmentDuration, 30, 'm');
 
     el.innerHTML =
-      '<div class="config-grid">' +
-        '<div class="config-item"><div class="key">Formato</div><div class="val">' + esc(cfg.recordFormat || '—') + '</div></div>' +
-        '<div class="config-item full"><div class="key">Ruta de grabaciones</div><div class="val mono">' + esc(cfg.recordPath || '—') + '</div></div>' +
+      '<div class="delete-after-row">' +
+        '<span class="da-label">Formato de grabación:</span>' +
+        '<div class="da-controls">' +
+          '<select id="recFormat">' +
+            '<option value="fmp4"' + (cfg.recordFormat === 'fmp4' ? ' selected' : '') + '>fmp4</option>' +
+            '<option value="mpegts"' + (cfg.recordFormat === 'mpegts' ? ' selected' : '') + '>mpegts</option>' +
+          '</select>' +
+          '<button class="btn success sm" onclick="saveRecordFormat()">Guardar</button>' +
+        '</div>' +
+        '<span class="da-current">Actual: ' + esc(cfg.recordFormat || 'no configurado') + '</span>' +
+      '</div>' +
+      '<div class="delete-after-row">' +
+        '<span class="da-label">Ruta de grabaciones:</span>' +
+        '<div class="da-controls" style="flex:1;min-width:240px">' +
+          '<input type="text" id="recPath" value="' + esc(cfg.recordPath || '') + '" style="flex:1;font-family:ui-monospace,monospace;font-size:.78rem">' +
+          '<button class="btn success sm" onclick="saveRecordPath()">Guardar</button>' +
+        '</div>' +
       '</div>' +
       '<div class="delete-after-row">' +
         '<span class="da-label">Duración de segmento:</span>' +
@@ -789,6 +811,91 @@ async function loadControl() {
       '</div>';
   } catch (e) {
     el.innerHTML = '<div class="empty"><div class="icon">&#9888;</div><p>No se pudo conectar con MediaMTX: ' + esc(e.message) + '</p></div>';
+  }
+}
+
+// ── Logs panel ───────────────────────────────────────────────────
+async function loadLogsConfig() {
+  const el = document.getElementById('logsContent');
+  try {
+    const cfg = await api('/config/global');
+    const destinations = cfg.logDestinations || [];
+    const levels = ['error', 'warn', 'info', 'debug'];
+    const destOptions = ['stdout', 'file', 'syslog'];
+
+    el.innerHTML =
+      '<div class="delete-after-row">' +
+        '<span class="da-label">Nivel de log:</span>' +
+        '<div class="da-controls">' +
+          '<select id="logLevel">' +
+            levels.map(l => '<option value="' + l + '"' + (cfg.logLevel === l ? ' selected' : '') + '>' + l + '</option>').join('') +
+          '</select>' +
+        '</div>' +
+        '<span class="da-current">Actual: ' + esc(cfg.logLevel || 'no configurado') + '</span>' +
+      '</div>' +
+      '<div class="delete-after-row">' +
+        '<span class="da-label">Destino de logs:</span>' +
+        '<div class="da-controls" style="gap:1rem">' +
+          destOptions.map(d =>
+            '<label style="display:flex;align-items:center;gap:.35rem;font-size:.85rem;cursor:pointer">' +
+              '<input type="checkbox" class="logDest" value="' + d + '"' + (destinations.includes(d) ? ' checked' : '') + '> ' + d +
+            '</label>'
+          ).join('') +
+        '</div>' +
+        '<span class="da-current">Actual: ' + esc(destinations.join(', ') || 'ninguno') + '</span>' +
+      '</div>' +
+      '<div class="delete-after-row">' +
+        '<span class="da-label">Archivo de log (usado si "file" está marcado):</span>' +
+        '<div class="da-controls" style="flex:1;min-width:200px">' +
+          '<input type="text" id="logFile" value="' + esc(cfg.logFile || '') + '" style="flex:1;font-family:ui-monospace,monospace;font-size:.78rem">' +
+        '</div>' +
+      '</div>' +
+      '<div class="delete-after-row" style="justify-content:flex-end">' +
+        '<button class="btn success sm" onclick="saveLogsConfig()">Guardar registros</button>' +
+      '</div>';
+  } catch (e) {
+    el.innerHTML = '<div class="empty"><div class="icon">&#9888;</div><p>No se pudo conectar con MediaMTX: ' + esc(e.message) + '</p></div>';
+  }
+}
+
+async function saveLogsConfig() {
+  const logLevel = document.getElementById('logLevel').value;
+  const logFile = document.getElementById('logFile').value.trim();
+  const logDestinations = Array.from(document.querySelectorAll('.logDest:checked')).map(cb => cb.value);
+
+  if (logDestinations.length === 0) {
+    toast('Selecciona al menos un destino de log', 'error');
+    return;
+  }
+  try {
+    await api('/config/global', { method: 'PATCH', body: { logLevel, logDestinations, logFile } });
+    toast('✓ Configuración de logs actualizada', 'success');
+    await loadLogsConfig();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function saveRecordFormat() {
+  const format = document.getElementById('recFormat').value;
+  try {
+    await api('/config/defaults', { method: 'PATCH', body: { recordFormat: format } });
+    toast('Formato de grabación configurado: ' + format, 'success');
+    await loadControl();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function saveRecordPath() {
+  const path = document.getElementById('recPath').value.trim();
+  if (!path) { toast('La ruta no puede estar vacía', 'error'); return; }
+  try {
+    await api('/config/defaults', { method: 'PATCH', body: { recordPath: path } });
+    toast('Ruta de grabaciones configurada', 'success');
+    await loadControl();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
   }
 }
 
@@ -1541,7 +1648,7 @@ setInterval(refreshLiveStats, LIVE_STATS_INTERVAL);
 // Refresco "completo": grabaciones y configuración, más pesado de reconstruir
 // (tablas enteras), en el ciclo configurable por el usuario.
 async function refresh() {
-  await Promise.all([checkHealth(), loadLiveStreams(), loadControl(), loadRecordings()]);
+  await Promise.all([checkHealth(), loadLiveStreams(), loadControl(), loadLogsConfig(), loadRecordings()]);
   if (currentTab === 'files') await loadFilesTab();
 }
 
