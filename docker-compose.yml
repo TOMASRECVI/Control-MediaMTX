@@ -1,0 +1,51 @@
+# ------------------------------------------------------------------
+#  MediaMTX Recording Manager
+#  Despliega junto al contenedor mediamtx existente.
+#
+#  USO:
+#    1. Copia esta carpeta al servidor Linux (192.168.1.147)
+#    2. cd mediamtx-manager
+#    3. docker compose up -d --build
+#    4. Abre http://192.168.1.147:8080 en el navegador
+#
+#  NOTA: Tu contenedor MediaMTX se llama "mediamtx-mediamtx-1"
+#        y usa la red "mediamtx_default". Si los tuyos son diferentes,
+#        cambia MEDIAMTX_API y la red abajo.
+# ------------------------------------------------------------------
+
+services:
+  mediamtx-manager:
+    build: .
+    container_name: mediamtx-manager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Apunta a la API de MediaMTX.
+      # "mediamtx-mediamtx-1" es el nombre del contenedor MediaMTX.
+      MEDIAMTX_API: "http://mediamtx-mediamtx-1:9997"
+      # Credenciales de acceso al panel. CAMBIA AUTH_PASSWORD antes de
+      # desplegar en producción. Si se deja vacía, se genera una contraseña
+      # aleatoria distinta en cada reinicio (se imprime en `docker logs`).
+      AUTH_USERNAME: "admin"
+      AUTH_PASSWORD: "cambia-esta-contrasena"
+    volumes:
+      # Monta el volumen de datos de MediaMTX (solo lectura)
+      # para poder servir los videos de las grabaciones.
+      - mediamtx_data:/data
+    networks:
+      - mediamtx_default
+
+# ------------------------------------------------------------------
+#  Red: usa la red existente de MediaMTX para comunicarse.
+# ------------------------------------------------------------------
+networks:
+  mediamtx_default:
+    external: true
+
+# ------------------------------------------------------------------
+#  Volumen: el volumen donde MediaMTX guarda las grabaciones.
+# ------------------------------------------------------------------
+volumes:
+  mediamtx_data:
+    external: true

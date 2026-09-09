@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sever video</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--card:#1c2333;
+  --border:#30363d;--text:#e6edf3;--muted:#8b949e;
+  --accent:#58a6ff;--red:#f85149;--green:#3fb950;
+  --orange:#d29922;--rec:#e94560;
+  --radius:10px;--shadow:0 2px 12px rgba(0,0,0,.4);
+}
+html{font-size:15px}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;min-height:100vh}
+a{color:var(--accent);text-decoration:none}
+
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem;position:sticky;top:0;z-index:50}
+.topbar h1{font-size:1.15rem;font-weight:600;display:flex;align-items:center;gap:.5rem}
+.topbar .dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s}
+.topbar .dot.ok{background:var(--green)}.topbar .dot.fail{background:var(--red)}
+.topbar .spacer{flex:1}
+.topbar .auto-label{font-size:.8rem;color:var(--muted)}
+.refresh-control{display:flex;align-items:center;gap:.4rem}
+.refresh-control select{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:.3rem .5rem;border-radius:6px;font-size:.8rem;font-family:inherit;cursor:pointer}
+.refresh-control select:focus{outline:none;border-color:var(--accent)}
+.refresh-control select option{background:var(--card);color:var(--text)}
+#manualRefreshIcon{display:inline-block}
+#manualRefreshIcon.spin{animation:spin .7s linear infinite}
+
+.container{max-width:1100px;margin:0 auto;padding:1.25rem}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.25rem;box-shadow:var(--shadow)}
+.card h2{font-size:1rem;font-weight:600;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+.config-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,max-content));gap:.75rem;margin-top:1rem}
+.config-item{background:var(--surface);padding:.65rem .85rem;border-radius:6px;border:1px solid var(--border);min-width:0}
+.config-item.full{grid-column:1/-1}
+.config-item .key{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:2px}
+.config-item .val{font-size:.9rem;font-weight:500;word-break:break-all}
+.config-item .val.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.82rem}
+
+/* Delete-after config */
+.delete-after-row{display:flex;align-items:center;gap:.75rem .9rem;margin-top:1rem;flex-wrap:wrap;padding:.75rem .85rem;background:var(--surface);border-radius:6px;border:1px solid var(--border)}
+.delete-after-row .da-label{font-size:.85rem;font-weight:500;white-space:nowrap}
+.delete-after-row .da-controls{display:flex;align-items:center;gap:.5rem}
+.delete-after-row input[type="number"]{width:85px;padding:6px 9px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:.85rem;font-family:inherit}
+.delete-after-row select{padding:6px 9px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:.85rem;font-family:inherit;cursor:pointer;min-width:100px}
+.delete-after-row select option{background:var(--card);color:var(--text)}
+.delete-after-row .da-current{font-size:.78rem;color:var(--muted);margin-left:auto;white-space:nowrap}
+
+/* Recordings */
+.path-group{margin-bottom:1.25rem}
+.path-header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:.65rem;flex-wrap:wrap}
+.path-header h3{font-size:.95rem;font-weight:600;display:flex;align-items:center;gap:.4rem}
+.path-header h3 .cam{color:var(--accent)}
+
+.seg-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.seg-table th{text-align:left;color:var(--muted);font-weight:500;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;padding:.45rem .65rem;border-bottom:1px solid var(--border)}
+.seg-table td{padding:.5rem .65rem;border-bottom:1px solid rgba(48,54,61,.5);vertical-align:middle}
+.seg-table tbody tr:hover{background:rgba(88,166,255,.04)}
+.seg-table tbody tr.selected{background:rgba(88,166,255,.1)}
+
+/* Checkbox */
+input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;vertical-align:middle}
+
+/* Selection bar */
+.selection-bar{display:flex;align-items:center;gap:1rem;padding:.6rem 1rem;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.2);border-radius:8px;margin-bottom:1rem;flex-wrap:wrap}
+.selection-bar .count{font-size:.85rem;color:var(--accent);font-weight:500}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:5px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:.8rem;cursor:pointer;transition:.15s;font-family:inherit}
+.btn:hover{border-color:var(--muted);background:var(--card)}
+.btn.danger{color:var(--red);border-color:rgba(248,81,73,.3)}
+.btn.danger:hover{background:rgba(248,81,73,.12);border-color:var(--red)}
+.btn.primary{color:var(--accent);border-color:rgba(88,166,255,.3)}
+.btn.primary:hover{background:rgba(88,166,255,.12);border-color:var(--accent)}
+.btn.success{color:var(--green);border-color:rgba(63,185,80,.3)}
+.btn.success:hover{background:rgba(63,185,80,.12);border-color:var(--green)}
+.btn.sm{padding:3px 10px;font-size:.75rem}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.rec-on{color:var(--rec);border-color:rgba(233,69,96,.4);background:rgba(233,69,96,.1)}
+.btn.rec-off{color:var(--muted)}
+.rec-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rec)}
+.rec-dot.blink{animation:pulse 1.2s ease-in-out infinite}
+.blocked-banner{padding:.4rem .75rem;background:rgba(233,69,96,.12);color:var(--rec);font-size:.75rem;font-weight:600;text-align:center;border-top:1px solid rgba(233,69,96,.3)}
+
+/* Toast */
+.toast-area{position:fixed;top:60px;right:1rem;z-index:100;display:flex;flex-direction:column;gap:.5rem;pointer-events:none}
+.toast{pointer-events:auto;padding:.6rem 1rem;border-radius:8px;font-size:.85rem;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.5);animation:slideIn .3s ease;max-width:360px}
+.toast.success{background:#1a7f37}.toast.error{background:#b62324}.toast.info{background:#1158c7}
+@keyframes slideIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+
+.empty{text-align:center;padding:2.5rem 1rem;color:var(--muted)}
+.empty .icon{font-size:2rem;margin-bottom:.5rem}
+.loader{display:flex;justify-content:center;padding:2rem}
+.spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:center;justify-content:center;animation:fadeIn .2s}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.modal h3{font-size:1rem;margin-bottom:.75rem}
+.modal p{font-size:.9rem;color:var(--muted);margin-bottom:1.25rem}
+.modal .actions{display:flex;gap:.5rem;justify-content:flex-end}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* Video Player Modal */
+.video-modal{max-width:900px;width:95%;padding:0;overflow:hidden}
+.video-modal .video-header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--border)}
+.video-modal .video-header h3{margin:0;font-size:.95rem}
+.video-modal .video-header-actions{display:flex;align-items:center;gap:.6rem}
+.video-modal .video-header .close-btn{background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;padding:4px 8px;border-radius:4px;line-height:1}
+.video-modal .video-header .close-btn:hover{color:var(--text);background:var(--surface)}
+.video-modal .video-body{background:#000;position:relative}
+.video-modal video{width:100%;max-height:70vh;display:block}
+.video-modal .video-info{padding:.5rem 1rem;font-size:.8rem;color:var(--muted);border-top:1px solid var(--border)}
+
+/* File size helpers */
+.file-size{color:var(--muted);font-size:.8rem}
+
+/* Tabs */
+.tabs{display:flex;gap:0;margin-bottom:1rem;border-bottom:1px solid var(--border)}
+.tab{padding:.5rem 1rem;font-size:.85rem;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:.15s;background:none;border-top:none;border-left:none;border-right:none;font-family:inherit}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Files tab */
+.file-row{display:flex;align-items:center;gap:.75rem;padding:.45rem .65rem;border-bottom:1px solid rgba(48,54,61,.5);font-size:.85rem}
+.file-row:hover{background:rgba(88,166,255,.04)}
+.file-row .file-name{flex:1;word-break:break-all}
+.file-row .file-meta{color:var(--muted);font-size:.8rem;white-space:nowrap}
+
+/* Live Stream - Grid */
+.live-streams-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem;margin:1rem 0}
+
+.stream-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:.2s;box-shadow:var(--shadow)}
+.stream-card:hover{border-color:var(--accent)}
+.stream-card.active{border-color:var(--green)}
+.stream-card.inactive{opacity:.7}
+
+.stream-header{padding:.75rem;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+.stream-title{font-weight:600;font-size:.95rem;flex:1;word-break:break-word}
+.stream-status{font-size:.75rem;font-weight:600;padding:3px 8px;border-radius:4px;white-space:nowrap}
+.stream-status.live{background:rgba(63,185,80,.2);color:var(--green)}
+.stream-status.offline{background:rgba(139,148,158,.15);color:var(--muted)}
+
+.stream-meta{display:flex;flex-wrap:wrap;gap:.4rem .6rem;align-items:center;padding:.5rem .75rem;background:var(--surface);border-bottom:1px solid var(--border);font-size:.75rem;color:var(--muted)}
+.meta-badge{background:rgba(88,166,255,.15);color:var(--accent);font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.02em}
+.meta-item{white-space:nowrap}
+.stream-ips{padding:.4rem .75rem;background:var(--surface);border-bottom:1px solid var(--border);font-size:.72rem;color:var(--muted);display:flex;flex-direction:column;gap:.2rem}
+.stream-ips code{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px;color:var(--text);font-size:.72rem}
+
+.stream-viewer{flex:1;background:#000;min-height:240px;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.stream-video{width:100%;height:100%;object-fit:contain}
+.stream-viewer iframe{width:100%;height:100%;border:0;display:block}
+.offline-placeholder{flex-direction:column;gap:.5rem}
+.offline-icon{font-size:2rem}
+.offline-text{color:var(--muted);font-size:.85rem}
+
+.stream-controls{padding:.75rem;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:.5rem;justify-content:center}
+.stream-controls .btn{flex:1}
+
+/* Legacy stream-selector (for backward compat) */
+.stream-selector{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:1rem;margin:1rem 0}
+.stream-item{display:flex;align-items:center;gap:.75rem;padding:1rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:.2s}
+.stream-item:hover{background:var(--card);border-color:var(--accent)}
+.stream-item.selected{border-color:var(--accent);background:rgba(88,166,255,.1)}
+.stream-indicator{width:16px;height:16px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.stream-item.active .stream-indicator{background:var(--green);animation:pulse 1.5s infinite}
+.stream-info{flex:1}
+.stream-name{font-weight:600;color:var(--text);font-size:.95rem}
+
+.stream-player{width:100%;max-width:800px;margin:1.5rem auto;background:#000;border-radius:var(--radius);overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.stream-player video{width:100%;display:block;background:#000}
+.stream-player.mjpeg-mode{background:var(--surface);display:flex;align-items:center;justify-content:center}
+.stream-player.mjpeg-mode img{max-width:100%;height:auto}
+
+@media(max-width:640px){
+  .container{padding:.75rem}
+  .config-grid{grid-template-columns:1fr}
+  .seg-table{font-size:.78rem}
+  .seg-table th,.seg-table td{padding:.4rem .45rem}
+  .video-modal{width:100%;border-radius:0}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1><span class="dot" id="statusDot"></span> Sever video</h1>
+  <div class="spacer"></div>
+  <button class="btn sm" id="manualRefreshBtn" onclick="manualRefresh()" title="Actualizar ahora">
+    <span id="manualRefreshIcon">&#8635;</span> Actualizar
+  </button>
+  <label class="refresh-control">
+    <span class="auto-label">Actualizar cada</span>
+    <select id="refreshIntervalSelect" onchange="onRefreshIntervalChange(this.value)">
+      <option value="2000">2 s</option>
+      <option value="5000">5 s</option>
+      <option value="10000">10 s</option>
+      <option value="15000">15 s</option>
+      <option value="30000">30 s</option>
+      <option value="60000">60 s</option>
+      <option value="0">Pausado</option>
+    </select>
+  </label>
+  <button class="btn sm" onclick="logout()" title="Cerrar sesión">&#9211; Salir</button>
+</div>
+
+<div class="toast-area" id="toasts"></div>
+
+<div class="container">
+  <!-- Live Stream Viewer -->
+  <div class="card">
+    <h2>&#128249; Emisión en Vivo</h2>
+    <div id="liveStreamContent"><div class="loader"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Recording Control -->
+  <div class="card" id="controlCard">
+    <h2>&#9673; Información de grabación</h2>
+    <div id="controlContent"><div class="loader"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Selection bar (hidden by default) -->
+  <div class="selection-bar" id="selectionBar" style="display:none">
+    <span class="count" id="selCount">0 seleccionados</span>
+    <button class="btn danger sm" onclick="deleteSelected()">Eliminar seleccionados</button>
+    <button class="btn sm" onclick="clearSelection()">Deseleccionar todo</button>
+  </div>
+
+  <!-- Recordings browser -->
+  <div class="card">
+    <h2>&#128193; Grabaciones</h2>
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('segments', this)">Segmentos</button>
+      <button class="tab" onclick="switchTab('files', this)">Archivos en disco</button>
+    </div>
+    <div id="segmentsTab">
+      <div id="recordingsContent"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+    <div id="filesTab" style="display:none">
+      <div id="filesContent"><div class="loader"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-bg" id="confirmModal" style="display:none">
+  <div class="modal">
+    <h3 id="confirmTitle">Confirmar</h3>
+    <p id="confirmMsg"></p>
+    <div class="actions">
+      <button class="btn" id="confirmCancelBtn" onclick="closeModal()">Cancelar</button>
+      <button class="btn danger" id="confirmBtn">Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Video player modal -->
+<div class="modal-bg" id="videoModal" style="display:none">
+  <div class="modal video-modal">
+    <div class="video-header">
+      <h3 id="videoTitle">Reproductor</h3>
+      <div class="video-header-actions">
+        <a id="videoDownloadLink" class="btn sm" download title="Descargar este archivo">&#8681; Descargar</a>
+        <button class="close-btn" onclick="closeVideo()">&times;</button>
+      </div>
+    </div>
+    <div class="video-body">
+      <video id="videoPlayer" controls preload="metadata">
+        Tu navegador no soporta la reproducci&oacute;n de v&iacute;deo.
+      </video>
+    </div>
+    <div class="video-info" id="videoInfo"></div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_REFRESH_INTERVAL = 5000;
+let REFRESH_INTERVAL = DEFAULT_REFRESH_INTERVAL;
+let refreshTimer = null;
+
+// ─── Intervalo de auto-refresco configurable (persistido en el navegador) ─
+function loadStoredRefreshInterval() {
+  try {
+    const stored = localStorage.getItem('mmtx_refresh_interval');
+    if (stored !== null && !isNaN(parseInt(stored))) return parseInt(stored);
+  } catch (e) { /* localStorage no disponible: usamos el valor por defecto */ }
+  return DEFAULT_REFRESH_INTERVAL;
+}
+
+function applyRefreshInterval(ms) {
+  REFRESH_INTERVAL = ms;
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  if (ms > 0) {
+    refreshTimer = setInterval(refresh, ms);
+  }
+  const sel = document.getElementById('refreshIntervalSelect');
+  if (sel) sel.value = String(ms);
+}
+
+function onRefreshIntervalChange(value) {
+  const ms = parseInt(value, 10) || 0;
+  try { localStorage.setItem('mmtx_refresh_interval', String(ms)); } catch (e) {}
+  applyRefreshInterval(ms);
+  toast(ms > 0 ? ('Auto-refresco cada ' + (ms / 1000) + ' s') : 'Auto-refresco pausado', 'info');
+}
+
+// ─── Visor en vivo: iframe directo al servidor HLS nativo de MediaMTX ────
+// MediaMTX sirve HLS en su PROPIO servidor HTTP (puerto 8888 por defecto),
+// separado del puerto de esta API (9997/9996) y del de este panel (8080).
+// Es el método que MediaMTX recomienda (mediamtx.org/docs/read/web-browsers)
+// y el que se confirmó funcionando: http://<host>:8888/<nombre-stream>
+//
+// Si tu MediaMTX vive en un host distinto al de este panel, fija aquí el
+// valor directamente en vez de usar window.location.hostname, ej:
+// const MEDIAMTX_HLS_HOST = '192.168.1.147';
+const MEDIAMTX_HLS_HOST = window.location.hostname;
+const MEDIAMTX_HLS_PORT = 8888;
+
+function mediamtxHlsUrl(streamName) {
+  // query params soportados por el reproductor nativo de MediaMTX:
+  // ?muted=false  ?autoplay=true  ?controls=false
+  return `http://${MEDIAMTX_HLS_HOST}:${MEDIAMTX_HLS_PORT}/${encodeURIComponent(streamName)}?autoplay=true&muted=true&controls=true`;
+}
+let confirmCallback = null;
+let selectedSegments = new Map(); // key: "path|start" -> {path, start}
+let selectedFiles = new Map();    // key: file path -> {path, name, size}
+let recordingFiles = {};  // path -> [{filename, path, size, modified}, ...]
+let currentTab = 'segments';
+let liveStatusByName = {}; // stream name -> {active, recording} (poblado en loadLiveStreams)
+let liveCardActiveState = {}; // stream name -> último 'active' con el que se renderizó su tarjeta
+
+// ── Toast ────────────────────────────────────────────────────────
+function toast(msg, type = 'info') {
+  const area = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  area.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3500);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+function esc(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── API ──────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  if (res.status === 401) {
+    // Sesión caducada o cerrada desde otra pestaña: al login.
+    window.location.href = '/login';
+    throw new Error('Sesión no válida, redirigiendo...');
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+  return data;
+}
+
+// ── Health ───────────────────────────────────────────────────────
+async function checkHealth() {
+  const dot = document.getElementById('statusDot');
+  try {
+    const d = await api('/health');
+    dot.className = 'dot ' + (d.mediamtx ? 'ok' : 'fail');
+  } catch { dot.className = 'dot fail'; }
+}
+
+// ── Live Streams ────────────────────────────────────────────────
+
+// Bloque de protocolo/bitrate/espectadores/IPs de una tarjeta. Se reconstruye
+// en CADA refresco (es barato, son solo texto), a diferencia del visor.
+function buildStreamMetaHtml(stream, isActive) {
+  if (!isActive) {
+    return stream.sourceType ? '<div class="stream-meta"><span class="meta-badge">' + esc(stream.sourceType) + '</span></div>' : '';
+  }
+  return '<div class="stream-meta">' +
+      (stream.sourceType ? '<span class="meta-badge">' + esc(stream.sourceType) + '</span>' : '') +
+      '<span class="meta-item">⬇ ' + formatBitrate(stream.bitrateIn) + '</span>' +
+      '<span class="meta-item">⬆ ' + formatBitrate(stream.bitrateOut) + '</span>' +
+      '<span class="meta-item">👁 ' + (stream.readersCount || 0) + (stream.readersCount === 1 ? ' espectador' : ' espectadores') + '</span>' +
+    '</div>' +
+    ((stream.sourceAddr || (stream.readerAddrs && stream.readerAddrs.length > 0)) ?
+      '<div class="stream-ips">' +
+        (stream.sourceAddr ? '<div>Entrada (publisher): <code>' + esc(stream.sourceAddr) + '</code></div>' : '') +
+        (stream.readerAddrs && stream.readerAddrs.length > 0 ?
+          '<div>Salidas: ' +
+            stream.readerAddrs.map(function(r) {
+              return '<code>' + esc(r.addr) + '</code> (' + esc(r.type) + (r.count > 1 ? ' &times;' + r.count : '') + ')';
+            }).join(', ') +
+          '</div>'
+          : '') +
+      '</div>'
+      : ''
+    );
+}
+
+// Botones de grabar/desconectar/permitir-reconexión + aviso de bloqueo.
+// También se reconstruye en cada refresco: son botones sin estado propio,
+// a diferencia del iframe del visor.
+function buildStreamControlsHtml(stream, isActive) {
+  const isRecording = stream.recording === true;
+  const isBlocked = stream.reconnectBlocked === true;
+  return '<div class="stream-controls">' +
+      '<button class="btn sm ' + (isRecording ? 'rec-on' : 'rec-off') + '" ' +
+        'data-record-stream="' + esc(stream.name) + '" data-recording="' + isRecording + '" data-active="' + isActive + '" ' +
+        'title="' + (isRecording ? 'Detener grabación de este stream' : 'Activar grabación de este stream') + '">' +
+        (isRecording ? '<span class="rec-dot blink"></span> Grabando' : '<span class="rec-dot"></span> Grabar') +
+      '</button>' +
+      (isActive ?
+        '<button class="btn danger sm" data-kick-stream="' + esc(stream.name) + '" title="Desconectar y rechazar la conexión entrante">' +
+          '🚫 Desconectar' +
+        '</button>'
+        :
+        '<button class="btn disabled sm" disabled title="Stream inactivo">' +
+          '🚫 Desconectar' +
+        '</button>'
+      ) +
+      (isBlocked ?
+        '<button class="btn sm" onclick="allowReconnect(\'' + esc(stream.name) + '\')" title="Permitir que este stream vuelva a conectar">' +
+          '🔓 Permitir reconexión' +
+        '</button>'
+        : ''
+      ) +
+    '</div>' +
+    (isBlocked ? '<div class="blocked-banner">🔒 Reconexión bloqueada tras el último "Desconectar"</div>' : '');
+}
+
+// Tarjeta completa (incluye el visor/iframe). Solo se usa para crear una
+// tarjeta nueva o cuando el stream pasa de activo a inactivo o viceversa:
+// recrear el iframe en cada refresco automático hacía que el reproductor
+// abriera una sesión HLS nueva cada pocos segundos, cortando la reproducción
+// y sumando "espectadores" fantasma (nosotros mismos) en cada ciclo.
+function buildStreamCardHtml(stream) {
+  const isActive = stream.active === true;
+  const streamId = 'stream_' + stream.name.replace(/[^a-zA-Z0-9]/g, '_');
+
+  let html = '<div class="stream-card ' + (isActive ? 'active' : 'inactive') + '" id="card_' + streamId + '" data-stream-name="' + esc(stream.name) + '">' +
+    '<div class="stream-header">' +
+      '<div class="stream-title">' + esc(stream.name) + '</div>' +
+      '<div class="stream-status ' + (isActive ? 'live' : 'offline') + '">' +
+        (isActive ? '🟢 EN VIVO' : '⚫ INACTIVO') +
+      '</div>' +
+    '</div>' +
+    '<div class="stream-meta-wrap">' + buildStreamMetaHtml(stream, isActive) + '</div>';
+
+  if (isActive) {
+    // Visor en vivo: iframe directo al servidor HLS nativo de MediaMTX
+    // (puerto 8888), tal y como recomienda la propia documentación de
+    // MediaMTX. No pasa por este backend Flask.
+    html += '<div class="stream-viewer">' +
+      '<iframe id="' + streamId + '" src="' + esc(mediamtxHlsUrl(stream.name)) + '" scrolling="no" allow="autoplay" allowfullscreen title="Stream: ' + esc(stream.name) + '"></iframe>' +
+    '</div>';
+  } else {
+    html += '<div class="stream-viewer offline-placeholder">' +
+      '<div class="offline-icon">⚫</div>' +
+      '<div class="offline-text">Stream no disponible</div>' +
+    '</div>';
+  }
+
+  html += '<div class="stream-controls-wrap">' + buildStreamControlsHtml(stream, isActive) + '</div>';
+  html += '</div>';
+  return html;
+}
+
+// Delegación de eventos sobre el grid: se registra una vez por grid creado y
+// sigue funcionando pase lo que pase con el HTML interno (evita tener que
+// re-enganchar listeners cada vez que se actualiza una tarjeta).
+function bindLiveStreamHandlers(grid) {
+  grid.addEventListener('click', function(e) {
+    const kickBtn = e.target.closest('[data-kick-stream]');
+    if (kickBtn) { kickStream(kickBtn.getAttribute('data-kick-stream'), kickBtn); return; }
+    const recBtn = e.target.closest('[data-record-stream]');
+    if (recBtn) { toggleRecordStream(recBtn); return; }
+  });
+}
+
+async function loadLiveStreams() {
+  const el = document.getElementById('liveStreamContent');
+  try {
+    const data = await api('/paths/list');
+
+    // Cache de estado (activo/grabando) por nombre de stream, usado por las
+    // pestañas de Segmentos/Archivos para saber si hay que detener la
+    // grabación antes de permitir borrar. Se guarda de la lista SIN filtrar,
+    // ya que aquí sí necesitamos conocer streams inactivos también.
+    liveStatusByName = {};
+    for (const p of (data.items || [])) {
+      liveStatusByName[p.name] = { active: p.active === true, recording: p.recording === true };
+    }
+
+    // El panel "En Vivo" muestra streams activos ahora mismo, más los que
+    // estén bloqueados tras un "Desconectar" (aunque ya no emitan), para que
+    // el banner de bloqueo y el botón "Permitir reconexión" sigan visibles.
+    // MediaMTX sigue listando paths inactivos indefinidamente (sobre todo
+    // los creados dinámicamente, p.ej. por SRT), así que sin este filtro
+    // una tarjeta se queda para siempre aunque el stream ya no emita.
+    // Sus grabaciones siguen disponibles en la pestaña "Grabaciones".
+    const paths = (data.items || []).filter(p => p.active === true || p.reconnectBlocked === true);
+
+    if (paths.length === 0) {
+      el.innerHTML = '<div class="empty"><div class="icon">&#128249;</div><p>No hay streams activos en este momento</p></div>';
+      liveCardActiveState = {};
+      return;
+    }
+
+    let grid = el.querySelector('.live-streams-grid');
+    if (!grid) {
+      el.innerHTML = '<div class="live-streams-grid"></div>';
+      grid = el.querySelector('.live-streams-grid');
+      bindLiveStreamHandlers(grid);
+      liveCardActiveState = {};
+    }
+
+    const seenNames = new Set();
+    for (const stream of paths) {
+      seenNames.add(stream.name);
+      const isActive = stream.active === true;
+      const streamId = 'stream_' + stream.name.replace(/[^a-zA-Z0-9]/g, '_');
+      const existingCard = document.getElementById('card_' + streamId);
+      const prevActive = liveCardActiveState[stream.name];
+
+      if (existingCard && prevActive === isActive) {
+        // Mismo estado activo/inactivo que la última vez: solo refrescamos
+        // los datos (bitrate, espectadores, IPs, grabación, bloqueo) SIN
+        // tocar el visor, para no reconectar el iframe innecesariamente.
+        const metaWrap = existingCard.querySelector('.stream-meta-wrap');
+        if (metaWrap) metaWrap.innerHTML = buildStreamMetaHtml(stream, isActive);
+        const controlsWrap = existingCard.querySelector('.stream-controls-wrap');
+        if (controlsWrap) controlsWrap.innerHTML = buildStreamControlsHtml(stream, isActive);
+      } else {
+        // Tarjeta nueva, o cambió de activo a inactivo (o viceversa): hay
+        // que reconstruirla entera (el visor pasa de vídeo a placeholder o
+        // viceversa).
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = buildStreamCardHtml(stream);
+        const newCard = wrapper.firstElementChild;
+        if (existingCard) existingCard.replaceWith(newCard);
+        else grid.appendChild(newCard);
+      }
+      liveCardActiveState[stream.name] = isActive;
+    }
+
+    // Quita del DOM las tarjetas de streams que ya no están en la lista.
+    for (const child of Array.from(grid.children)) {
+      const name = child.getAttribute('data-stream-name');
+      if (name && !seenNames.has(name)) {
+        child.remove();
+        delete liveCardActiveState[name];
+      }
+    }
+
+    // MJPEG se reproduce automáticamente sin necesidad de inicialización
+  } catch (e) {
+    el.innerHTML = '<div class="empty"><div class="icon">⚠️</div><p>Error: ' + esc(e.message) + '</p></div>';
+    liveCardActiveState = {};
+    console.error('Error en loadLiveStreams:', e);
+  }
+}
+
+// Activar/desactivar grabación de un stream (modal estilizado, no confirm() nativo)
+function toggleRecordStream(btn) {
+  const streamName = btn.getAttribute('data-record-stream');
+  const currentlyRecording = btn.getAttribute('data-recording') === 'true';
+  const isActive = btn.getAttribute('data-active') === 'true';
+  const next = !currentlyRecording;
+
+  const title = next ? 'Activar grabación' : 'Detener grabación';
+  const warning = isActive
+    ? '<p>¿' + (next ? 'Activar grabación' : 'Detener grabación') + ' para <strong>' + esc(streamName) + '</strong>?</p>' +
+      '<p style="font-size:.85rem;color:var(--muted);margin-top:.5rem">Aviso: MediaMTX puede reconectar brevemente el stream en vivo al cambiar esta opción.</p>'
+    : '<p>¿' + (next ? 'Activar' : 'Desactivar') + ' grabación para <strong>' + esc(streamName) + '</strong>?</p>';
+
+  showModal(title, warning, async () => {
+    btn.disabled = true;
+    try {
+      await api('/config/paths/' + encodeURIComponent(streamName), {
+        method: 'PATCH',
+        body: { record: next }
+      });
+      toast(`${streamName}: grabación ${next ? 'activada 🔴' : 'desactivada'}`, 'success');
+      // MediaMTX puede reconectar brevemente el stream al cambiar 'record',
+      // así que refrescamos en bucle hasta que el cambio se refleje de
+      // verdad (o hasta agotar los intentos) en vez de esperar un tiempo
+      // fijo que podría no ser suficiente.
+      await refreshUntilRecordingMatches(streamName, next);
+    } catch (e) {
+      toast('Error al cambiar grabación: ' + e.message, 'error');
+      btn.disabled = false;
+    }
+  }, next ? 'Activar grabación' : 'Detener grabación', 'primary');
+}
+
+// Refresca repetidamente hasta que checkFn() devuelva true o se agoten los
+// intentos. Evita depender de una espera fija que podría no bastar si
+// MediaMTX tarda en aplicar un cambio (grabación, reconexión, etc.).
+async function refreshUntil(checkFn, attempts = 10, delayMs = 400) {
+  for (let i = 0; i < attempts; i++) {
+    await new Promise(r => setTimeout(r, delayMs));
+    await refresh();
+    if (checkFn()) return;
+  }
+}
+
+async function refreshUntilRecordingMatches(streamName, expected, attempts = 8, delayMs = 400) {
+  await refreshUntil(() => liveStatusByName[streamName]?.recording === expected, attempts, delayMs);
+}
+
+// Desconectar/rechazar stream: corta la sesión activa Y bloquea que se
+// reconecte de inmediato (overridePublisher=false en el backend), ya que
+// MediaMTX no ofrece una forma de bloquear una IP/conexión permanentemente.
+function kickStream(streamName, btn) {
+  showModal(
+    'Rechazar conexión',
+    '<p>¿Desconectar y rechazar la conexión entrante de <strong>' + esc(streamName) + '</strong>?</p>' +
+    '<p style="font-size:.85rem;color:var(--muted);margin-top:.5rem">Se cortará la sesión activa y se bloqueará que un publisher tome su lugar hasta que se permita la reconexión manualmente desde el panel.</p>',
+    async () => {
+      if (btn) btn.disabled = true;
+      try {
+        const r = await api('/stream/' + encodeURIComponent(streamName) + '/kick', { method: 'POST' });
+        if (r.warning) {
+          toast('Stream desconectado, pero: ' + r.warning, 'info');
+        } else {
+          toast('✓ Conexión rechazada: reconexión bloqueada hasta que se permita de nuevo', 'success');
+        }
+        await new Promise(r => setTimeout(r, 500));
+        await refresh();
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+        if (btn) btn.disabled = false;
+      }
+    },
+    'Rechazar conexión', 'danger'
+  );
+}
+
+// Permitir de nuevo la reconexión de un stream bloqueado tras "Desconectar"
+function allowReconnect(streamName) {
+  showModal(
+    'Permitir reconexión',
+    '<p>¿Permitir de nuevo que <strong>' + esc(streamName) + '</strong> se conecte?</p>',
+    async () => {
+      try {
+        await api('/stream/' + encodeURIComponent(streamName) + '/allow-reconnect', { method: 'POST' });
+        toast('✓ Reconexión permitida de nuevo', 'success');
+        // El publisher puede tardar unos segundos en reconectar por su cuenta
+        // tras levantar el bloqueo; seguimos refrescando hasta que el visor
+        // vuelva a mostrarse activo, en vez de esperar al siguiente ciclo
+        // automático de refresco.
+        await refreshUntil(() => liveStatusByName[streamName]?.active === true, 12, 500);
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+      }
+    },
+    'Permitir reconexión', 'primary'
+  );
+}
+
+// MediaMTX devuelve las duraciones en formato compuesto de Go (ej.
+// "1h0m0s", "20h0m0s", "30m0s"), no como "24h" simple. Sin esto, un valor
+// como "20h0m0s" no coincidía con ningún patrón y siempre se mostraba el
+// valor por defecto (24 horas) en vez del real.
+function parseGoDuration(raw, fallbackValue, fallbackUnit) {
+  const m = (raw || '').match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!m || (!m[1] && !m[2] && !m[3])) return { value: fallbackValue, unit: fallbackUnit };
+  const h = parseInt(m[1] || '0', 10), min = parseInt(m[2] || '0', 10), s = parseInt(m[3] || '0', 10);
+  if (h === 0 && min === 0) return { value: s, unit: 's' };
+  if (h === 0) return { value: min, unit: 'm' };
+  if (min === 0 && s === 0) return { value: h, unit: 'h' };
+  return { value: h * 60 + min, unit: 'm' }; // mezcla h+m: lo expresamos todo en minutos
+}
+
+function durationUnitOptions(selectedUnit) {
+  return ['h', 'm', 's'].map(function(u) {
+    const label = u === 'h' ? 'horas' : (u === 'm' ? 'minutos' : 'segundos');
+    return '<option value="' + u + '"' + (u === selectedUnit ? ' selected' : '') + '>' + label + '</option>';
+  }).join('');
+}
+
+// ── Control panel ────────────────────────────────────────────────
+async function loadControl() {
+  const el = document.getElementById('controlContent');
+  try {
+    const cfg = await api('/config/defaults');
+
+    const da = parseGoDuration(cfg.recordDeleteAfter, 24, 'h');
+    const seg = parseGoDuration(cfg.recordSegmentDuration, 30, 'm');
+
+    el.innerHTML =
+      '<div class="config-grid">' +
+        '<div class="config-item"><div class="key">Formato</div><div class="val">' + esc(cfg.recordFormat || '—') + '</div></div>' +
+        '<div class="config-item full"><div class="key">Ruta de grabaciones</div><div class="val mono">' + esc(cfg.recordPath || '—') + '</div></div>' +
+      '</div>' +
+      '<div class="delete-after-row">' +
+        '<span class="da-label">Duración de segmento:</span>' +
+        '<div class="da-controls">' +
+          '<input type="number" id="segValue" value="' + seg.value + '" min="1" max="1440">' +
+          '<select id="segUnit">' + durationUnitOptions(seg.unit) + '</select>' +
+          '<button class="btn success sm" onclick="saveSegmentDuration()">Guardar</button>' +
+        '</div>' +
+        '<span class="da-current">Actual: ' + esc(cfg.recordSegmentDuration || 'no configurado') + '</span>' +
+      '</div>' +
+      '<div class="delete-after-row">' +
+        '<span class="da-label">Borrado automático después de:</span>' +
+        '<div class="da-controls">' +
+          '<input type="number" id="daValue" value="' + da.value + '" min="1" max="8760">' +
+          '<select id="daUnit">' + durationUnitOptions(da.unit) + '</select>' +
+          '<button class="btn success sm" onclick="saveDeleteAfter()">Guardar</button>' +
+        '</div>' +
+        '<span class="da-current">Actual: ' + esc(cfg.recordDeleteAfter || 'no configurado') + '</span>' +
+      '</div>';
+  } catch (e) {
+    el.innerHTML = '<div class="empty"><div class="icon">&#9888;</div><p>No se pudo conectar con MediaMTX: ' + esc(e.message) + '</p></div>';
+  }
+}
+
+async function saveSegmentDuration() {
+  const val = document.getElementById('segValue').value;
+  const unit = document.getElementById('segUnit').value;
+  if (!val || parseInt(val) < 1) {
+    toast('Introduce un valor válido', 'error');
+    return;
+  }
+  const duration = val + unit;
+  try {
+    await api('/config/defaults', { method: 'PATCH', body: { recordSegmentDuration: duration } });
+    toast('Duración de segmento configurada: ' + duration, 'success');
+    await loadControl();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function saveDeleteAfter() {
+  const val = document.getElementById('daValue').value;
+  const unit = document.getElementById('daUnit').value;
+  if (!val || parseInt(val) < 1) {
+    toast('Introduce un valor válido', 'error');
+    return;
+  }
+  const duration = val + unit;
+  try {
+    await api('/config/defaults', { method: 'PATCH', body: { recordDeleteAfter: duration } });
+    toast('Borrado automático configurado: ' + duration, 'success');
+    await loadControl();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────
+function switchTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('segmentsTab').style.display = tab === 'segments' ? '' : 'none';
+  document.getElementById('filesTab').style.display = tab === 'files' ? '' : 'none';
+  if (tab === 'files') loadFilesTab();
+}
+
+// ── Recordings ───────────────────────────────────────────────────
+async function loadRecordingFiles() {
+  try {
+    const data = await api('/recordings/files');
+    recordingFiles = {};
+    for (const item of (data.items || [])) {
+      recordingFiles[item.name] = item.files || [];
+    }
+  } catch { recordingFiles = {}; }
+}
+
+function findVideoFile(pathName, startISO) {
+  const files = recordingFiles[pathName] || [];
+  if (files.length === 0) return null;
+
+  if (startISO) {
+    const d = new Date(startISO);
+    // Build prefix without microseconds (e.g., "2026-09-06_15-30-16")
+    const prefix = d.getFullYear() + '-' +
+      String(d.getMonth()+1).padStart(2,'0') + '-' +
+      String(d.getDate()).padStart(2,'0') + '_' +
+      String(d.getHours()).padStart(2,'0') + '-' +
+      String(d.getMinutes()).padStart(2,'0') + '-' +
+      String(d.getSeconds()).padStart(2,'0');
+
+    // Find file that starts with this prefix (may have -microseconds after)
+    // Files can be: 2026-09-06_15-30-16.mp4 or 2026-09-06_15-30-16-123456.mp4
+    const match = files.find(f => {
+      const fname = f.filename.split('.')[0]; // remove .mp4
+      return fname === prefix || fname.startsWith(prefix + '-');
+    });
+    if (match) return match;
+  }
+  return files[files.length - 1];
+}
+
+function getFileSize(pathName, startISO) {
+  const file = findVideoFile(pathName, startISO);
+  return file ? file.size : null;
+}
+
+async function loadRecordings() {
+  const el = document.getElementById('recordingsContent');
+  try {
+    await loadRecordingFiles();
+    const data = await api('/recordings');
+    const items = data.items || [];
+
+    if (items.length === 0) {
+      el.innerHTML = '<div class="empty"><div class="icon">&#128249;</div><p>No hay grabaciones almacenadas.</p></div>';
+      updateSelectionBar();
+      return;
+    }
+
+    let html = '';
+    for (const rec of items) {
+      const segs = rec.segments || [];
+      html += '<div class="path-group">' +
+        '<div class="path-header">' +
+          '<h3><span class="cam">&#128247;</span> ' + esc(rec.name) + '</h3>' +
+          '<div style="display:flex;gap:.5rem;align-items:center">' +
+            '<span style="font-size:.8rem;color:var(--muted)">' + segs.length + ' segmento' + (segs.length !== 1 ? 's' : '') + '</span>' +
+            (segs.length > 0 ? '<button class="btn danger sm" onclick="confirmDeleteAll(\'' + esc(rec.name) + '\')">Eliminar todos</button>' : '') +
+          '</div></div>';
+
+      if (segs.length > 0) {
+        html += '<div style="overflow-x:auto"><table class="seg-table"><thead><tr>' +
+          '<th><input type="checkbox" onchange="toggleSelectAll(\'' + esc(rec.name) + '\', this.checked)" data-selectall="' + esc(rec.name) + '"></th>' +
+          '<th>Inicio</th><th>Fin</th><th>Duración</th><th></th>' +
+          '</tr></thead><tbody>';
+
+        for (const seg of segs) {
+          const key = rec.name + '|' + seg.start;
+          const checked = selectedSegments.has(key) ? ' checked' : '';
+          const start = formatDate(seg.start);
+          // Use backend-provided end time and duration if available
+          const end = seg.end ? formatDate(seg.end) : '—';
+          const duration = seg.durationFormatted || (seg.start && seg.end ? formatDuration(seg.start, seg.end) : '—');
+          const videoFile = findVideoFile(rec.name, seg.start);
+
+          const vfPath = videoFile ? videoFile.path : '';
+          html += '<tr class="' + (selectedSegments.has(key) ? 'selected' : '') + '">' +
+            '<td><input type="checkbox" data-path="' + esc(rec.name) + '" data-start="' + esc(seg.start) +
+              '" data-file="' + esc(vfPath) + '" onchange="toggleSelect(this)"' + checked + '></td>' +
+            '<td>' + start + '</td>' +
+            '<td>' + end + '</td>' +
+            '<td><span class="file-size">' + duration + '</span></td>' +
+            '<td style="text-align:right;white-space:nowrap">' +
+              (videoFile ? '<button class="btn primary sm" data-video="' + esc(videoFile.path) + '" data-path="' + esc(rec.name) + '" data-label="' + esc(start) + '" onclick="playVideoBtn(this)">&#9654; Ver</button> ' : '') +
+              '<button class="btn danger sm" data-path="' + esc(rec.name) + '" data-start="' + esc(seg.start) + '" data-file="' + esc(vfPath) + '" onclick="deleteSegBtn(this)">Eliminar</button>' +
+            '</td></tr>';
+        }
+        html += '</tbody></table></div>';
+      } else if (rec.error) {
+        html += '<p style="font-size:.85rem;color:var(--orange)">Error al obtener segmentos: ' + esc(rec.error) + '</p>';
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html;
+    updateSelectionBar();
+  } catch (e) {
+    el.innerHTML = '<div class="empty"><div class="icon">&#9888;</div><p>Error cargando grabaciones: ' + esc(e.message) + '</p></div>';
+  }
+}
+
+// ── Files Tab ────────────────────────────────────────────────────
+async function loadFilesTab() {
+  const el = document.getElementById('filesContent');
+  el.innerHTML = '<div class="loader"><div class="spinner"></div></div>';
+  try {
+    await loadRecordingFiles();
+    const allPaths = Object.keys(recordingFiles).sort();
+    if (allPaths.length === 0) {
+      el.innerHTML = '<div class="empty"><div class="icon">&#128193;</div><p>No hay archivos de grabación en disco.</p></div>';
+      return;
+    }
+
+    let html = '';
+    let totalFiles = 0;
+    let totalSize = 0;
+
+    for (const pathName of allPaths) {
+      const files = recordingFiles[pathName];
+      let pathSize = 0;
+      files.forEach(f => pathSize += f.size);
+      totalFiles += files.length;
+      totalSize += pathSize;
+
+      html += '<div class="path-group">' +
+        '<div class="path-header">' +
+          '<h3><span class="cam">&#128247;</span> ' + esc(pathName) + '</h3>' +
+          '<div style="display:flex;gap:.5rem;align-items:center">' +
+            '<span style="font-size:.8rem;color:var(--muted)">' + files.length + ' archivo' + (files.length !== 1 ? 's' : '') + ' — ' + formatSize(pathSize) + '</span>' +
+            '<button class="btn danger sm" onclick="confirmDeleteAllFiles(\'' + esc(pathName) + '\')">Eliminar todos</button>' +
+          '</div></div>';
+
+      html += '<div style="overflow-x:auto"><table class="seg-table"><thead><tr>' +
+        '<th><input type="checkbox" onchange="toggleSelectAllFiles(\'' + esc(pathName) + '\', this.checked)"></th>' +
+        '<th>Archivo</th><th>Tamaño</th><th>Fecha</th><th></th>' +
+        '</tr></thead><tbody>';
+
+      for (const f of files) {
+        const checked = selectedFiles.has(f.path) ? ' checked' : '';
+        html += '<tr class="' + (selectedFiles.has(f.path) ? 'selected' : '') + '">' +
+          '<td><input type="checkbox" data-filepath="' + esc(f.path) + '" data-pathgroup="' + esc(pathName) +
+            '" onchange="toggleSelectFile(this)"' + checked + '></td>' +
+          '<td>' + esc(f.filename) + '</td>' +
+          '<td><span class="file-size">' + formatSize(f.size) + '</span></td>' +
+          '<td><span class="file-size">' + formatDate(new Date(f.modified * 1000).toISOString()) + '</span></td>' +
+          '<td style="text-align:right;white-space:nowrap">' +
+            '<button class="btn primary sm" onclick="playVideo(\'' + esc(f.path) + '\',\'' + esc(pathName) + '\',\'' + esc(f.filename) + '\')">&#9654; Ver</button> ' +
+            '<button class="btn danger sm" onclick="confirmDeleteFile(\'' + esc(f.path) + '\',\'' + esc(pathName) + '\')">Eliminar</button>' +
+          '</td></tr>';
+      }
+      html += '</tbody></table></div></div>';
+    }
+
+    // Summary
+    html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:.5rem">' +
+      '<span style="font-size:.85rem;color:var(--muted)">Total: ' + totalFiles + ' archivo' + (totalFiles !== 1 ? 's' : '') + ' — ' + formatSize(totalSize) + '</span>' +
+      (selectedFiles.size > 0 ? '<button class="btn danger sm" onclick="deleteSelectedFiles()">Eliminar ' + selectedFiles.size + ' seleccionado' + (selectedFiles.size !== 1 ? 's' : '') + '</button>' : '') +
+    '</div>' + html;
+
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="empty"><div class="icon">&#9888;</div><p>Error: ' + esc(e.message) + '</p></div>';
+  }
+}
+
+// ── File Selection ──────────────────────────────────────────────
+function toggleSelectFile(cb) {
+  const key = cb.dataset.filepath;
+  const pathGroup = cb.dataset.pathgroup || '';
+  if (cb.checked) {
+    selectedFiles.set(key, { path: key, pathName: pathGroup });
+    cb.closest('tr').classList.add('selected');
+  } else {
+    selectedFiles.delete(key);
+    cb.closest('tr').classList.remove('selected');
+  }
+  // Refresh summary buttons
+  if (currentTab === 'files') loadFilesTab();
+}
+
+function toggleSelectAllFiles(pathName, checked) {
+  document.querySelectorAll('#filesTab input[data-pathgroup="' + pathName + '"]').forEach(cb => {
+    cb.checked = checked;
+    const key = cb.dataset.filepath;
+    if (checked) {
+      selectedFiles.set(key, { path: key, pathName: pathName });
+      cb.closest('tr').classList.add('selected');
+    } else {
+      selectedFiles.delete(key);
+      cb.closest('tr').classList.remove('selected');
+    }
+  });
+  if (currentTab === 'files') loadFilesTab();
+}
+
+function confirmDeleteFile(filePath, pathName) {
+  if (pathName && isPathActivelyRecording(pathName)) {
+    showRecordingBlockModal([pathName], () => confirmDeleteFile(filePath, pathName));
+    return;
+  }
+
+  const name = filePath.split('/').pop();
+  showModal(
+    'Eliminar archivo',
+    '¿Seguro que deseas eliminar el archivo <strong>' + esc(name) + '</strong> del disco? Esta acción no se puede deshacer.',
+    async () => {
+      try {
+        const r = await api('/recordings/files/delete', { method: 'POST', body: { files: [filePath] } });
+        toast('Archivo eliminado', 'success');
+        selectedFiles.delete(filePath);
+
+        // Reload both tabs with delay to allow MediaMTX to update
+        console.log('Waiting for MediaMTX to refresh after file delete...');
+        await new Promise(r => setTimeout(r, 500));
+        await loadFilesTab();
+        await refresh(); // refresco completo de la web al borrar ficheros
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+
+        // Refresh even on error
+        console.log('Refreshing files tab after error...');
+        await new Promise(r => setTimeout(r, 1000));
+        await loadFilesTab();
+        await refresh(); // refresco completo de la web al borrar ficheros
+      }
+    }
+  );
+}
+
+function confirmDeleteAllFiles(pathName) {
+  if (isPathActivelyRecording(pathName)) {
+    showRecordingBlockModal([pathName], () => confirmDeleteAllFiles(pathName));
+    return;
+  }
+
+  const files = (recordingFiles[pathName] || []).map(f => f.path);
+  showModal(
+    'Eliminar todos los archivos',
+    '¿Seguro que deseas eliminar <strong>todos los ' + files.length + ' archivos</strong> de <strong>' + esc(pathName) + '</strong> del disco? Esta acción no se puede deshacer.',
+    async () => {
+      try {
+        const r = await api('/recordings/files/delete', { method: 'POST', body: { files } });
+        toast('Eliminados ' + r.deleted + ' archivo(s)', 'success');
+        files.forEach(f => selectedFiles.delete(f));
+
+        // Reload both tabs with delay to allow MediaMTX to update
+        console.log('Waiting for MediaMTX to refresh after deleting all files...');
+        await new Promise(r => setTimeout(r, 500));
+        await loadFilesTab();
+        await refresh(); // refresco completo de la web al borrar ficheros
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+
+        // Refresh even on error
+        console.log('Refreshing files tab after error...');
+        await new Promise(r => setTimeout(r, 1000));
+        await loadFilesTab();
+        await refresh(); // refresco completo de la web al borrar ficheros
+      }
+    }
+  );
+}
+
+function deleteSelectedFiles() {
+  const count = selectedFiles.size;
+  if (count === 0) return;
+  const files = Array.from(selectedFiles.keys());
+
+  const involvedPaths = Array.from(selectedFiles.values()).map(v => v.pathName);
+  const recording = getRecordingStreamsAmong(involvedPaths);
+  if (recording.length > 0) {
+    showRecordingBlockModal(recording, () => deleteSelectedFiles());
+    return;
+  }
+
+  showModal(
+    'Eliminar seleccionados',
+    '¿Seguro que deseas eliminar <strong>' + count + '</strong> archivo' + (count !== 1 ? 's' : '') + ' del disco? Esta acción no se puede deshacer.',
+    async () => {
+      try {
+        const r = await api('/recordings/files/delete', { method: 'POST', body: { files } });
+        toast('Eliminados ' + r.deleted + ' archivo(s)' + (r.errors ? ', ' + r.errors + ' error(es)' : ''), r.errors ? 'error' : 'success');
+        selectedFiles.clear();
+
+        // Reload both tabs with delay to allow MediaMTX to update
+        console.log('Waiting for MediaMTX to refresh after batch file delete...');
+        await new Promise(r => setTimeout(r, 500));
+        await loadFilesTab();
+        await refresh(); // refresco completo de la web al borrar ficheros
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+
+        // Refresh even on error
+        console.log('Refreshing files tab after error...');
+        await new Promise(r => setTimeout(r, 1000));
+        await loadFilesTab();
+        await refresh(); // refresco completo de la web al borrar ficheros
+      }
+    }
+  );
+}
+
+// ── Segment Selection ───────────────────────────────────────────
+function toggleSelect(cb) {
+  const key = cb.dataset.path + '|' + cb.dataset.start;
+  if (cb.checked) {
+    selectedSegments.set(key, { path: cb.dataset.path, start: cb.dataset.start, file: cb.dataset.file || '' });
+    cb.closest('tr').classList.add('selected');
+  } else {
+    selectedSegments.delete(key);
+    cb.closest('tr').classList.remove('selected');
+  }
+  updateSelectionBar();
+}
+
+function toggleSelectAll(pathName, checked) {
+  document.querySelectorAll('#segmentsTab input[data-path="' + pathName + '"]').forEach(cb => {
+    cb.checked = checked;
+    const key = cb.dataset.path + '|' + cb.dataset.start;
+    if (checked) {
+      selectedSegments.set(key, { path: cb.dataset.path, start: cb.dataset.start, file: cb.dataset.file || '' });
+      cb.closest('tr').classList.add('selected');
+    } else {
+      selectedSegments.delete(key);
+      cb.closest('tr').classList.remove('selected');
+    }
+  });
+  updateSelectionBar();
+}
+
+function clearSelection() {
+  selectedSegments.clear();
+  document.querySelectorAll('.seg-table input[type="checkbox"]').forEach(cb => {
+    cb.checked = false;
+    const tr = cb.closest('tr');
+    if (tr) tr.classList.remove('selected');
+  });
+  updateSelectionBar();
+}
+
+function updateSelectionBar() {
+  const bar = document.getElementById('selectionBar');
+  const count = selectedSegments.size;
+  if (count > 0 && currentTab === 'segments') {
+    bar.style.display = 'flex';
+    document.getElementById('selCount').textContent = count + ' seleccionado' + (count !== 1 ? 's' : '');
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+async function deleteSelected() {
+  const count = selectedSegments.size;
+  if (count === 0) return;
+
+  const involvedPaths = Array.from(selectedSegments.values()).map(s => s.path);
+  const recording = getRecordingStreamsAmong(involvedPaths);
+  if (recording.length > 0) {
+    showRecordingBlockModal(recording, () => deleteSelected());
+    return;
+  }
+
+  showModal(
+    'Eliminar seleccionados',
+    '¿Seguro que deseas eliminar <strong>' + count + '</strong> segmento' + (count !== 1 ? 's' : '') + ' seleccionado' + (count !== 1 ? 's' : '') + '? Se eliminarán también los archivos de vídeo asociados.',
+    async () => {
+      try {
+        const segments = Array.from(selectedSegments.values()).map(s => ({
+          path: s.path, start: s.start, file: s.file || undefined
+        }));
+        const r = await api('/recordings/batch-delete', { method: 'POST', body: { segments } });
+        const msg = 'Eliminados ' + r.deleted + ' segmento(s)' +
+          (r.filesDeleted ? ', ' + r.filesDeleted + ' archivo(s)' : '') +
+          (r.errors ? ', ' + r.errors + ' error(es)' : '');
+        toast(msg, r.errors ? 'error' : 'success');
+        selectedSegments.clear();
+
+        // Reload with delay to allow MediaMTX to update
+        console.log('Waiting for MediaMTX to refresh...');
+        await new Promise(r => setTimeout(r, 500));
+        await refresh(); // refresco completo de la web al borrar ficheros
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+
+        // Reload even on error
+        console.log('Refreshing recordings after error...');
+        await new Promise(r => setTimeout(r, 1000));
+        await refresh(); // refresco completo de la web al borrar ficheros
+      }
+    }
+  );
+}
+
+// ── Button handlers ─────────────────────────────────────────────
+function playVideoBtn(btn) {
+  const video = btn.dataset.video;
+  const path = btn.dataset.path;
+  const label = btn.dataset.label;
+  playVideo(video, path, label);
+}
+
+function deleteSegBtn(btn) {
+  const path = btn.dataset.path;
+  const start = btn.dataset.start;
+  const file = btn.dataset.file;
+  confirmDeleteSeg(path, start, file);
+}
+
+// ── Delete helpers ──────────────────────────────────────────────
+function confirmDeleteSeg(path, start, filePath) {
+  console.log('confirmDeleteSeg called:', { path, start, filePath });
+
+  if (isPathActivelyRecording(path)) {
+    showRecordingBlockModal([path], () => confirmDeleteSeg(path, start, filePath));
+    return;
+  }
+
+  showModal(
+    'Eliminar segmento',
+    '¿Seguro que deseas eliminar este segmento? Se eliminará también el archivo de vídeo asociado.',
+    async () => {
+      try {
+        let url = '/api/recordings/segment?path=' + encodeURIComponent(path) + '&start=' + encodeURIComponent(start);
+        if (filePath) url += '&file=' + encodeURIComponent(filePath);
+        console.log('Deleting with URL:', url);
+        const res = await fetch(url, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        console.log('Response status:', res.status);
+        const data = await res.json().catch(e => {
+          console.error('Error parsing JSON:', e);
+          return { error: 'Error parsing response' };
+        });
+        console.log('Delete response:', data);
+
+        // Handle successful file deletion even if MediaMTX segment delete failed
+        if (data.success || data.filesDeleted > 0) {
+          let msg = 'Eliminado: ';
+          if (data.filesDeleted > 0) msg += data.filesDeleted + ' archivo(s)';
+          if (data.filesDeleted > 0 && data.warning) msg += ' (aviso: ' + data.warning + ')';
+          else if (data.warning) msg += data.warning;
+          toast(msg || 'Segmento y archivo eliminados', data.warning ? 'info' : 'success');
+          selectedSegments.delete(path + '|' + start);
+
+          // Reload recordings with small delay to allow MediaMTX to update
+          console.log('Waiting for MediaMTX to refresh...');
+          await new Promise(r => setTimeout(r, 500));
+          await refresh(); // refresco completo de la web al borrar ficheros
+          return;
+        }
+
+        if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+        toast('Segmento y archivo eliminados', 'success');
+        selectedSegments.delete(path + '|' + start);
+
+        // Reload recordings
+        await new Promise(r => setTimeout(r, 500));
+        await refresh(); // refresco completo de la web al borrar ficheros
+      } catch (e) {
+        console.error('Delete error:', e);
+        toast('Error: ' + e.message, 'error');
+
+        // Even on error, reload to refresh the current state
+        console.log('Refreshing recordings after error...');
+        await new Promise(r => setTimeout(r, 1000));
+        await refresh(); // refresco completo de la web al borrar ficheros
+      }
+    }
+  );
+}
+
+function confirmDeleteAll(path) {
+  if (isPathActivelyRecording(path)) {
+    showRecordingBlockModal([path], () => confirmDeleteAll(path));
+    return;
+  }
+
+  showModal(
+    'Eliminar todas las grabaciones',
+    '¿Seguro que deseas eliminar <strong>todos</strong> los segmentos y archivos de <strong>' + esc(path) + '</strong>? Esta acción no se puede deshacer.',
+    async () => {
+      try {
+        const r = await api('/recordings/path/' + encodeURIComponent(path), { method: 'DELETE' });
+        const msg = 'Eliminados ' + r.deleted + ' segmento(s)' +
+          (r.filesDeleted ? ', ' + r.filesDeleted + ' archivo(s)' : '') +
+          (r.errors ? ', ' + r.errors + ' error(es)' : '');
+        toast(msg, r.errors ? 'error' : 'success');
+        for (const [key] of selectedSegments) {
+          if (key.startsWith(path + '|')) selectedSegments.delete(key);
+        }
+
+        // Reload with delay to allow MediaMTX to update
+        console.log('Waiting for MediaMTX to refresh...');
+        await new Promise(r => setTimeout(r, 500));
+        await refresh(); // refresco completo de la web al borrar ficheros
+      } catch (e) {
+        toast('Error: ' + e.message, 'error');
+
+        // Refresh even on error
+        console.log('Refreshing after error...');
+        await new Promise(r => setTimeout(r, 1000));
+        await refresh(); // refresco completo de la web al borrar ficheros
+      }
+    }
+  );
+}
+
+// ── Grabación en curso: bloqueo antes de borrar ─────────────────
+function isPathActivelyRecording(pathName) {
+  const st = liveStatusByName[pathName];
+  return !!(st && st.active && st.recording);
+}
+
+// Dado un array de nombres de stream implicados en un borrado, devuelve
+// los que están activos y grabando ahora mismo.
+function getRecordingStreamsAmong(pathNames) {
+  const uniq = Array.from(new Set(pathNames.filter(Boolean)));
+  return uniq.filter(isPathActivelyRecording);
+}
+
+// Muestra un modal de aviso (no de confirmación de borrado) explicando que
+// hay que detener la grabación antes de poder borrar, con un botón por
+// cada stream implicado para detenerla. Si se pasa retryAction, tras
+// detener todas las grabaciones implicadas se reintenta automáticamente.
+function showRecordingBlockModal(pathNames, retryAction) {
+  const names = Array.from(new Set(pathNames.filter(Boolean)));
+  const list = names.map(n => '<li style="margin:.25rem 0">' +
+    '<strong>' + esc(n) + '</strong> — <span style="color:var(--red)">grabando ahora mismo</span>' +
+    '</li>').join('');
+
+  document.getElementById('confirmTitle').textContent = '⏺ Grabación en curso';
+  document.getElementById('confirmMsg').innerHTML =
+    '<p>No se puede eliminar: el siguiente stream está grabando actualmente. ' +
+    'Debes detener la grabación antes de poder borrar sus archivos.</p>' +
+    '<ul style="margin:.5rem 0 .5rem 1.2rem">' + list + '</ul>' +
+    '<p style="font-size:.85rem;color:var(--muted)">Al detener la grabación, MediaMTX puede reconectar brevemente el stream en vivo.</p>';
+
+  const modal = document.getElementById('confirmModal');
+  modal.style.display = 'flex';
+
+  const confirmBtn = document.getElementById('confirmBtn');
+  confirmBtn.textContent = '⏹ Detener grabación' + (names.length > 1 ? ' (' + names.length + ')' : '') + ' y continuar';
+  confirmBtn.className = 'btn danger';
+  confirmBtn.onclick = async () => {
+    confirmBtn.disabled = true;
+    try {
+      for (const n of names) {
+        await api('/config/paths/' + encodeURIComponent(n), { method: 'PATCH', body: { record: false } });
+      }
+      toast('Grabación detenida en ' + names.length + ' stream(s)', 'success');
+      // closeModal() restaura la etiqueta/estado del botón automáticamente
+      closeModal();
+      await refresh();
+      if (retryAction) await retryAction();
+    } catch (e) {
+      confirmBtn.disabled = false;
+      toast('Error al detener grabación: ' + e.message, 'error');
+    }
+  };
+}
+
+// ── Modal ────────────────────────────────────────────────────────
+// Modal único y reutilizable para TODAS las ventanas de confirmación/aviso
+// de la app (borrar, grabar/detener grabación, desconectar, permitir
+// reconexión, etc.) — así todas comparten exactamente el mismo aspecto.
+// btnLabel/btnClass permiten adaptar el botón de confirmar a cada acción
+// (p.ej. "Eliminar" + rojo para borrados, "Confirmar" + azul para el resto).
+function showModal(title, msg, onConfirm, btnLabel, btnClass) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmMsg').innerHTML = msg;
+  document.getElementById('confirmModal').style.display = 'flex';
+  confirmCallback = onConfirm;
+
+  const confirmBtn = document.getElementById('confirmBtn');
+  confirmBtn.textContent = btnLabel || 'Eliminar';
+  confirmBtn.className = 'btn ' + (btnClass || 'danger');
+
+  confirmBtn.onclick = () => {
+    // IMPORTANTE: guardar el callback en una variable local ANTES de
+    // closeModal(), porque closeModal() pone confirmCallback a null.
+    // Si se llama primero closeModal(), el "if (confirmCallback)" de
+    // después siempre da false y la acción confirmada nunca llega a
+    // ejecutarse — esto es lo que hacía que "Eliminar seleccionados" y
+    // "Eliminar todos" no borraran nada.
+    const cb = confirmCallback;
+    closeModal();
+    if (cb) cb();
+  };
+}
+function closeModal() {
+  document.getElementById('confirmModal').style.display = 'none';
+  confirmCallback = null;
+  // Restaurar el botón de confirmar a su estado/etiqueta por defecto (por si
+  // quedó modificado por showModal con btnLabel/btnClass personalizados, o
+  // por showRecordingBlockModal con "Detener grabación...").
+  const confirmBtn = document.getElementById('confirmBtn');
+  confirmBtn.textContent = 'Eliminar';
+  confirmBtn.className = 'btn danger';
+  confirmBtn.disabled = false;
+}
+
+// ── Video Player ─────────────────────────────────────────────────
+function playVideo(filePath, pathName, startLabel) {
+  const modal = document.getElementById('videoModal');
+  const player = document.getElementById('videoPlayer');
+  const title = document.getElementById('videoTitle');
+  const info = document.getElementById('videoInfo');
+  const downloadLink = document.getElementById('videoDownloadLink');
+
+  player.pause();
+  player.removeAttribute('src');
+
+  title.textContent = pathName + ' — ' + startLabel;
+  info.textContent = 'Archivo: ' + filePath;
+  player.src = '/video/' + filePath;
+  downloadLink.href = '/video/' + filePath;
+  downloadLink.download = filePath.split('/').pop();
+  modal.style.display = 'flex';
+
+  player.load();
+  player.play().catch(() => {});
+}
+
+function closeVideo() {
+  const modal = document.getElementById('videoModal');
+  const player = document.getElementById('videoPlayer');
+  player.pause();
+  player.removeAttribute('src');
+  player.load();
+  modal.style.display = 'none';
+}
+
+// ── Utilities ────────────────────────────────────────────────────
+
+function formatDate(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('es-ES', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  } catch { return iso; }
+}
+
+function formatDuration(startISO, endISO) {
+  try {
+    const ms = new Date(endISO) - new Date(startISO);
+    if (ms < 0) return '—';
+    const secs = Math.floor(ms / 1000);
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+    if (m > 0) return m + 'm ' + String(s).padStart(2,'0') + 's';
+    return s + 's';
+  } catch { return '—'; }
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+  return (bytes / 1073741824).toFixed(2) + ' GB';
+}
+
+// Flujo actual (bits por segundo), no el total acumulado desde que empezó
+// la conexión. null significa que aún no hay una segunda muestra con la que
+// comparar (recién conectado).
+function formatBitrate(bps) {
+  if (bps === null || bps === undefined) return '—';
+  if (bps < 1000) return bps.toFixed(0) + ' bps';
+  if (bps < 1000000) return (bps / 1000).toFixed(1) + ' Kbps';
+  if (bps < 1000000000) return (bps / 1000000).toFixed(2) + ' Mbps';
+  return (bps / 1000000000).toFixed(2) + ' Gbps';
+}
+
+// ── Init ─────────────────────────────────────────────────────────
+
+// Refresco "ligero": solo el estado en vivo (bitrate, totales, espectadores,
+// IPs). Va en su propio ciclo rápido y fijo, independiente del selector de
+// auto-refresco (que ahora controla solo grabaciones/configuración), porque
+// loadLiveStreams() ya actualiza cada tarjeta sin tocar el iframe del visor
+// ni el resto de la página.
+const LIVE_STATS_INTERVAL = 2000;
+let liveStatsRefreshing = false;
+async function refreshLiveStats() {
+  if (liveStatsRefreshing) return; // evita solapar ciclos si una petición tarda
+  liveStatsRefreshing = true;
+  try {
+    await Promise.all([checkHealth(), loadLiveStreams()]);
+  } finally {
+    liveStatsRefreshing = false;
+  }
+}
+setInterval(refreshLiveStats, LIVE_STATS_INTERVAL);
+
+// Refresco "completo": grabaciones y configuración, más pesado de reconstruir
+// (tablas enteras), en el ciclo configurable por el usuario.
+async function refresh() {
+  await Promise.all([checkHealth(), loadLiveStreams(), loadControl(), loadRecordings()]);
+  if (currentTab === 'files') await loadFilesTab();
+}
+
+async function logout() {
+  try { await fetch('/logout', { method: 'POST' }); } catch (e) {}
+  window.location.href = '/login';
+}
+
+async function manualRefresh() {
+  const btn = document.getElementById('manualRefreshBtn');
+  const icon = document.getElementById('manualRefreshIcon');
+  if (btn) btn.disabled = true;
+  if (icon) icon.classList.add('spin');
+  try {
+    await refresh();
+    toast('✓ Actualizado', 'success');
+  } catch (e) {
+    toast('Error al actualizar: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.classList.remove('spin');
+  }
+}
+
+refresh();
+applyRefreshInterval(loadStoredRefreshInterval());
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeVideo(); }
+});
+
+document.getElementById('videoModal').addEventListener('click', function(e) {
+  if (e.target === this) closeVideo();
+});
+document.getElementById('confirmModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+</body>
+</html>

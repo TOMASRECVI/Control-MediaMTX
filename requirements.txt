@@ -1,0 +1,4 @@
+flask==3.1.*
+flask-cors==5.*
+requests==2.*
+gunicorn==23.*

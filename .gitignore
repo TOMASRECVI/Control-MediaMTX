@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Herramientas locales / IDE
+.claude/
+.vscode/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Configuración local con secretos reales (si alguna vez se crea)
+.env
+*.local.yml
