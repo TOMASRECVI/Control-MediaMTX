@@ -4,6 +4,16 @@ Guía para desplegar este panel junto a **cualquier** servidor MediaMTX que ya
 tengas corriendo en Docker. No necesitas tocar nada de tu configuración
 existente de MediaMTX.
 
+La imagen ya construida está publicada en GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/tomasrecvi/control-mediamtx:latest
+```
+
+(Se reconstruye automáticamente en cada actualización del proyecto — no
+hace falta compilar nada tú mismo, aunque también puedes hacerlo si
+prefieres partir del código fuente.)
+
 ## Requisitos previos
 
 - Docker y Docker Compose instalados en el servidor.
@@ -11,12 +21,19 @@ existente de MediaMTX.
 
 ## Pasos
 
-### 1. Clona el repositorio en el servidor
+### 1. Descarga el archivo de despliegue
+
+Solo necesitas dos archivos de este repositorio, no hace falta clonarlo
+entero:
 
 ```bash
-git clone https://github.com/TOMASRECVI/Control-MediaMTX.git
-cd Control-MediaMTX/install
+mkdir control-mediamtx && cd control-mediamtx
+curl -O https://raw.githubusercontent.com/TOMASRECVI/Control-MediaMTX/main/install/docker-compose.yml
+curl -O https://raw.githubusercontent.com/TOMASRECVI/Control-MediaMTX/main/install/.env.example
 ```
+
+(Si prefieres partir del código para poder modificarlo, clona el repo
+entero en su lugar: `git clone https://github.com/TOMASRECVI/Control-MediaMTX.git && cd Control-MediaMTX/install`)
 
 ### 2. Averigua los datos de tu contenedor MediaMTX
 
@@ -50,8 +67,12 @@ Rellena en `.env`:
 ### 4. Despliega
 
 ```bash
-docker compose up -d --build
+docker compose pull   # baja la imagen ya construida
+docker compose up -d
 ```
+
+Si en su lugar clonaste el repo y prefieres compilar tú mismo desde el
+código: `docker compose up -d --build`.
 
 ### 5. Accede al panel
 
@@ -64,8 +85,8 @@ Inicia sesión con el usuario y contraseña que configuraste en `.env`.
 ## Actualizar a una versión nueva
 
 ```bash
-git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 ## Solución de problemas

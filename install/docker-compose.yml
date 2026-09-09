@@ -4,15 +4,21 @@
 #  contenedor de MediaMTX corriendo. No contiene datos de ninguna red
 #  en concreto: todo se configura vía el archivo .env de esta carpeta.
 #
-#  USO:
-#    1. cp .env.example .env
-#    2. Edita .env con los datos de tu propio servidor
-#    3. docker compose up -d --build
-#    4. Abre http://<tu-servidor>:MANAGER_PORT (ver README.md)
+#  USO (imagen ya publicada, sin clonar el código — recomendado):
+#    1. cp .env.example .env  (edita con los datos de tu servidor)
+#    2. docker compose pull
+#    3. docker compose up -d
+#
+#  USO (construir tú mismo desde el código, si clonaste el repo):
+#    docker compose up -d --build
+#
+#  En ambos casos, accede luego a http://<tu-servidor>:MANAGER_PORT
+#  (ver README.md de esta carpeta).
 # ------------------------------------------------------------------
 
 services:
   mediamtx-manager:
+    image: ghcr.io/tomasrecvi/control-mediamtx:latest
     build:
       context: ..
       dockerfile: Dockerfile

@@ -49,19 +49,17 @@ El script:
    http://<ip-de-tu-servidor>:8080
    ```
 
-### Opción 3: Paquete de instalación genérico
-
-Si vas a desplegar esto en un servidor nuevo (no el original del proyecto),
-usa la carpeta [`install/`](install/README.md): un `docker-compose.yml`
-configurable por variables de entorno (`.env`), sin nada específico de
-ninguna red en concreto, con guía paso a paso incluida.
+### Opción 3: Imagen ya construida (`docker pull`)
 
 ```bash
-git clone https://github.com/TOMASRECVI/Control-MediaMTX.git
-cd Control-MediaMTX/install
-cp .env.example .env   # edita con los datos de tu servidor
-docker compose up -d --build
+docker pull ghcr.io/tomasrecvi/control-mediamtx:latest
 ```
+
+La imagen se reconstruye automáticamente en GitHub Container Registry con
+cada actualización del proyecto — no hace falta compilar nada. Ver
+[`install/README.md`](install/README.md) para el `docker-compose.yml`
+listo para usar (configurable por `.env`, sin nada específico de ninguna
+red en concreto).
 
 ## 📖 Documentación
 
