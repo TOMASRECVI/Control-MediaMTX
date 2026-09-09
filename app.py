@@ -18,18 +18,56 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
-# MediaMTX API base URL
-MEDIAMTX_API = os.environ.get('MEDIAMTX_API', 'http://mediamtx:9997').rstrip('/')
 REQUEST_TIMEOUT = int(os.environ.get('REQUEST_TIMEOUT', '10'))
 
 # Path where the mediamtx_data volume is mounted
 DATA_PATH = os.environ.get('DATA_PATH', '/data')
+
+# ─── Conexión con MediaMTX ────────────────────────────────────────────────────
+# Igual que las credenciales de login: MEDIAMTX_API (variable de entorno) solo
+# se usa como semilla la primera vez. Una vez configurado desde el panel
+# (⚙ Configuración), el host/puerto quedan guardados en el volumen de datos y
+# sobreviven a reinicios/reconstrucciones sin tocar docker-compose.yml.
+_MEDIAMTX_CONFIG_FILE = Path(DATA_PATH) / '.manager_mediamtx_config.json'
+_mediamtx_config_lock = threading.Lock()
+
+
+def _load_or_init_mediamtx_api():
+    try:
+        if _MEDIAMTX_CONFIG_FILE.exists():
+            data = json.loads(_MEDIAMTX_CONFIG_FILE.read_text())
+            if data.get('mediamtx_api'):
+                return data['mediamtx_api'].rstrip('/')
+    except (OSError, ValueError, KeyError) as e:
+        logger.warning(f'No se pudo leer la configuración de MediaMTX guardada ({e}); se reinicializa desde variables de entorno.')
+
+    api = os.environ.get('MEDIAMTX_API', 'http://mediamtx:9997').rstrip('/')
+    _save_mediamtx_api(api)
+    return api
+
+
+def _save_mediamtx_api(api):
+    try:
+        _MEDIAMTX_CONFIG_FILE.write_text(json.dumps({'mediamtx_api': api}))
+    except OSError as e:
+        logger.error(f'No se pudo guardar la configuración de MediaMTX en disco: {e}')
+
+
+MEDIAMTX_API = _load_or_init_mediamtx_api()
+
+
+def _set_mediamtx_api(new_api):
+    global MEDIAMTX_API
+    with _mediamtx_config_lock:
+        MEDIAMTX_API = new_api
+        _save_mediamtx_api(new_api)
 
 # ─── Autenticación ────────────────────────────────────────────────────────────
 # Usuario/contraseña únicos (panel de administración de un solo operador).
@@ -214,6 +252,44 @@ def change_credentials():
     _update_credentials(new_username, new_password)
     logger.info(f'Credenciales de acceso actualizadas (usuario: {new_username!r})')
     return jsonify({'success': True, 'username': new_username})
+
+
+@app.route('/api/account/mediamtx-config', methods=['GET'])
+def get_mediamtx_config():
+    """Host/puerto actuales de conexión con MediaMTX, para rellenar el formulario."""
+    parsed = urlparse(MEDIAMTX_API)
+    return jsonify({'host': parsed.hostname or '', 'port': parsed.port or 9997})
+
+
+@app.route('/api/account/mediamtx-config', methods=['PATCH'])
+def set_mediamtx_config():
+    """Cambia el host/puerto de conexión con MediaMTX. Comprueba que el nuevo
+    destino responde antes de guardar el cambio, para no dejar el panel
+    entero sin poder hablar con MediaMTX por una errata."""
+    body = request.json or {}
+    host = (body.get('host') or '').strip()
+    port = body.get('port')
+
+    if not host:
+        return jsonify({'error': 'El host no puede estar vacío'}), 400
+    try:
+        port = int(port)
+        if not (1 <= port <= 65535):
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'error': 'El puerto debe ser un número entre 1 y 65535'}), 400
+
+    new_api = f'http://{host}:{port}'
+    try:
+        r = http_requests.get(f'{new_api}/v3/config/global/get', timeout=5)
+        r.raise_for_status()
+    except http_requests.exceptions.RequestException as e:
+        logger.warning(f'No se pudo verificar la nueva conexión a MediaMTX ({new_api}): {e}')
+        return jsonify({'error': f'No se pudo conectar a {host}:{port}. Comprueba el host/puerto y que MediaMTX esté encendido. Detalle: {e}'}), 502
+
+    _set_mediamtx_api(new_api)
+    logger.info(f'Conexión con MediaMTX actualizada a: {new_api}')
+    return jsonify({'success': True, 'host': host, 'port': port})
 
 
 # ─── Bloqueo de reconexión tras "Desconectar" ────────────────────────────────

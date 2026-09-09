@@ -267,6 +267,50 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
   </div>
 </div>
 
+<!-- Settings modal: cuenta + conexión con MediaMTX -->
+<div class="modal-bg" id="settingsModal" style="display:none">
+  <div class="modal" style="max-width:480px">
+    <div class="video-header" style="margin:-1.5rem -1.5rem 1rem;padding:.9rem 1.25rem">
+      <h3>⚙ Configuración</h3>
+      <button class="close-btn" onclick="closeAccountSettings()">&times;</button>
+    </div>
+
+    <h4 style="font-size:.85rem;color:var(--muted);margin-bottom:.75rem">Usuario y contraseña</h4>
+    <div class="form-field">
+      <label for="accCurrentPassword">Contraseña actual</label>
+      <input type="password" id="accCurrentPassword" autocomplete="current-password">
+    </div>
+    <div class="form-field">
+      <label for="accNewUsername">Nuevo usuario (opcional)</label>
+      <input type="text" id="accNewUsername" autocomplete="username" placeholder="Deja vacío para no cambiarlo">
+    </div>
+    <div class="form-field">
+      <label for="accNewPassword">Nueva contraseña</label>
+      <input type="password" id="accNewPassword" autocomplete="new-password">
+    </div>
+    <div class="form-field">
+      <label for="accNewPasswordConfirm">Confirmar nueva contraseña</label>
+      <input type="password" id="accNewPasswordConfirm" autocomplete="new-password">
+    </div>
+    <div class="actions" style="margin-bottom:1.5rem">
+      <button class="btn primary" id="saveCredentialsBtn" onclick="saveCredentials()">Guardar credenciales</button>
+    </div>
+
+    <h4 style="font-size:.85rem;color:var(--muted);border-top:1px solid var(--border);padding-top:1rem;margin-bottom:.75rem">Conexión con MediaMTX</h4>
+    <div class="form-field">
+      <label for="mtxHost">Host / IP del contenedor MediaMTX</label>
+      <input type="text" id="mtxHost" placeholder="mediamtx-mediamtx-1">
+    </div>
+    <div class="form-field">
+      <label for="mtxPort">Puerto de la API</label>
+      <input type="number" id="mtxPort" placeholder="9997" min="1" max="65535">
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="saveMediamtxBtn" onclick="saveMediamtxConfig()">Guardar conexión</button>
+    </div>
+  </div>
+</div>
+
 <!-- Video player modal -->
 <div class="modal-bg" id="videoModal" style="display:none">
   <div class="modal video-modal">
@@ -1493,44 +1537,71 @@ async function logout() {
 
 // Modal para cambiar el usuario/contraseña de acceso al panel. Reutiliza el
 // modal genérico (showModal), inyectando un pequeño formulario como "mensaje".
-function openAccountSettings() {
-  const formHtml =
-    '<div class="form-field">' +
-      '<label for="accCurrentPassword">Contraseña actual</label>' +
-      '<input type="password" id="accCurrentPassword" autocomplete="current-password">' +
-    '</div>' +
-    '<div class="form-field">' +
-      '<label for="accNewUsername">Nuevo usuario (opcional)</label>' +
-      '<input type="text" id="accNewUsername" autocomplete="username" placeholder="Deja vacío para no cambiarlo">' +
-    '</div>' +
-    '<div class="form-field">' +
-      '<label for="accNewPassword">Nueva contraseña</label>' +
-      '<input type="password" id="accNewPassword" autocomplete="new-password">' +
-    '</div>' +
-    '<div class="form-field">' +
-      '<label for="accNewPasswordConfirm">Confirmar nueva contraseña</label>' +
-      '<input type="password" id="accNewPasswordConfirm" autocomplete="new-password">' +
-    '</div>';
+async function openAccountSettings() {
+  // Limpia los campos de contraseña de una apertura anterior.
+  ['accCurrentPassword', 'accNewUsername', 'accNewPassword', 'accNewPasswordConfirm'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  try {
+    const cfg = await api('/account/mediamtx-config');
+    document.getElementById('mtxHost').value = cfg.host || '';
+    document.getElementById('mtxPort').value = cfg.port || 9997;
+  } catch (e) {
+    toast('No se pudo leer la configuración de MediaMTX: ' + e.message, 'error');
+  }
+  document.getElementById('settingsModal').style.display = 'flex';
+}
 
-  showModal('⚙ Cambiar usuario y contraseña', formHtml, async () => {
-    const currentPassword = document.getElementById('accCurrentPassword').value;
-    const newUsername = document.getElementById('accNewUsername').value.trim();
-    const newPassword = document.getElementById('accNewPassword').value;
-    const newPasswordConfirm = document.getElementById('accNewPasswordConfirm').value;
+function closeAccountSettings() {
+  document.getElementById('settingsModal').style.display = 'none';
+}
 
-    if (!currentPassword) { toast('Introduce tu contraseña actual', 'error'); return; }
-    if (!newPassword) { toast('Introduce la nueva contraseña', 'error'); return; }
-    if (newPassword !== newPasswordConfirm) { toast('Las contraseñas nuevas no coinciden', 'error'); return; }
+async function saveCredentials() {
+  const btn = document.getElementById('saveCredentialsBtn');
+  const currentPassword = document.getElementById('accCurrentPassword').value;
+  const newUsername = document.getElementById('accNewUsername').value.trim();
+  const newPassword = document.getElementById('accNewPassword').value;
+  const newPasswordConfirm = document.getElementById('accNewPasswordConfirm').value;
 
-    try {
-      const body = { currentPassword, newPassword };
-      if (newUsername) body.newUsername = newUsername;
-      const data = await api('/account/credentials', { method: 'PATCH', body });
-      toast('✓ Credenciales actualizadas (usuario: ' + data.username + ')', 'success');
-    } catch (e) {
-      toast('Error: ' + e.message, 'error');
-    }
-  }, 'Guardar', 'primary');
+  if (!currentPassword) { toast('Introduce tu contraseña actual', 'error'); return; }
+  if (!newPassword) { toast('Introduce la nueva contraseña', 'error'); return; }
+  if (newPassword !== newPasswordConfirm) { toast('Las contraseñas nuevas no coinciden', 'error'); return; }
+
+  btn.disabled = true;
+  try {
+    const body = { currentPassword, newPassword };
+    if (newUsername) body.newUsername = newUsername;
+    const data = await api('/account/credentials', { method: 'PATCH', body });
+    toast('✓ Credenciales actualizadas (usuario: ' + data.username + ')', 'success');
+    closeAccountSettings();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function saveMediamtxConfig() {
+  const btn = document.getElementById('saveMediamtxBtn');
+  const host = document.getElementById('mtxHost').value.trim();
+  const port = document.getElementById('mtxPort').value;
+
+  if (!host) { toast('Introduce el host de MediaMTX', 'error'); return; }
+  if (!port) { toast('Introduce el puerto de la API', 'error'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Comprobando conexión...';
+  try {
+    await api('/account/mediamtx-config', { method: 'PATCH', body: { host, port: parseInt(port, 10) } });
+    toast('✓ Conexión con MediaMTX actualizada', 'success');
+    closeAccountSettings();
+    await refresh();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar conexión';
+  }
 }
 
 async function manualRefresh() {
@@ -1561,6 +1632,9 @@ document.getElementById('videoModal').addEventListener('click', function(e) {
 });
 document.getElementById('confirmModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
+});
+document.getElementById('settingsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeAccountSettings();
 });
 </script>
 </body>
