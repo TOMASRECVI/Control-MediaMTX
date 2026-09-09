@@ -107,6 +107,10 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
 .modal h3{font-size:1rem;margin-bottom:.75rem}
 .modal p{font-size:.9rem;color:var(--muted);margin-bottom:1.25rem}
 .modal .actions{display:flex;gap:.5rem;justify-content:flex-end}
+.modal .form-field{text-align:left;margin-bottom:.75rem}
+.modal .form-field label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.4px}
+.modal .form-field input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:.9rem;font-family:inherit}
+.modal .form-field input:focus{outline:none;border-color:var(--accent)}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 
 /* Video Player Modal */
@@ -209,6 +213,7 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
       <option value="0">Pausado</option>
     </select>
   </label>
+  <button class="btn sm" onclick="openAccountSettings()" title="Cambiar usuario y contraseña">&#9881; Configuración</button>
   <button class="btn sm" onclick="logout()" title="Cerrar sesión">&#9211; Salir</button>
 </div>
 
@@ -1484,6 +1489,48 @@ async function refresh() {
 async function logout() {
   try { await fetch('/logout', { method: 'POST' }); } catch (e) {}
   window.location.href = '/login';
+}
+
+// Modal para cambiar el usuario/contraseña de acceso al panel. Reutiliza el
+// modal genérico (showModal), inyectando un pequeño formulario como "mensaje".
+function openAccountSettings() {
+  const formHtml =
+    '<div class="form-field">' +
+      '<label for="accCurrentPassword">Contraseña actual</label>' +
+      '<input type="password" id="accCurrentPassword" autocomplete="current-password">' +
+    '</div>' +
+    '<div class="form-field">' +
+      '<label for="accNewUsername">Nuevo usuario (opcional)</label>' +
+      '<input type="text" id="accNewUsername" autocomplete="username" placeholder="Deja vacío para no cambiarlo">' +
+    '</div>' +
+    '<div class="form-field">' +
+      '<label for="accNewPassword">Nueva contraseña</label>' +
+      '<input type="password" id="accNewPassword" autocomplete="new-password">' +
+    '</div>' +
+    '<div class="form-field">' +
+      '<label for="accNewPasswordConfirm">Confirmar nueva contraseña</label>' +
+      '<input type="password" id="accNewPasswordConfirm" autocomplete="new-password">' +
+    '</div>';
+
+  showModal('⚙ Cambiar usuario y contraseña', formHtml, async () => {
+    const currentPassword = document.getElementById('accCurrentPassword').value;
+    const newUsername = document.getElementById('accNewUsername').value.trim();
+    const newPassword = document.getElementById('accNewPassword').value;
+    const newPasswordConfirm = document.getElementById('accNewPasswordConfirm').value;
+
+    if (!currentPassword) { toast('Introduce tu contraseña actual', 'error'); return; }
+    if (!newPassword) { toast('Introduce la nueva contraseña', 'error'); return; }
+    if (newPassword !== newPasswordConfirm) { toast('Las contraseñas nuevas no coinciden', 'error'); return; }
+
+    try {
+      const body = { currentPassword, newPassword };
+      if (newUsername) body.newUsername = newUsername;
+      const data = await api('/account/credentials', { method: 'PATCH', body });
+      toast('✓ Credenciales actualizadas (usuario: ' + data.username + ')', 'success');
+    } catch (e) {
+      toast('Error: ' + e.message, 'error');
+    }
+  }, 'Guardar', 'primary');
 }
 
 async function manualRefresh() {

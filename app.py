@@ -6,9 +6,11 @@ Web interface for controlling recording, viewing and managing recorded files.
 
 from flask import Flask, jsonify, request, render_template, Response, abort, redirect, session
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
 import requests as http_requests
 import os
 import re
+import json
 import hmac
 import secrets
 import logging
@@ -31,20 +33,62 @@ DATA_PATH = os.environ.get('DATA_PATH', '/data')
 
 # ─── Autenticación ────────────────────────────────────────────────────────────
 # Usuario/contraseña únicos (panel de administración de un solo operador).
-# Configurables por variable de entorno; si no se define contraseña, se
-# genera una aleatoria y se imprime en los logs una sola vez al arrancar
-# -- preferible a exponer el panel con una contraseña por defecto adivinable.
-AUTH_USERNAME = os.environ.get('AUTH_USERNAME', 'admin')
-AUTH_PASSWORD = os.environ.get('AUTH_PASSWORD', '')
-if not AUTH_PASSWORD:
-    AUTH_PASSWORD = secrets.token_urlsafe(12)
+# Las credenciales EFECTIVAS se guardan (usuario + hash de contraseña) en un
+# archivo en el volumen de datos, para poder cambiarlas desde el propio panel
+# sin tocar docker-compose.yml ni perderlas al reiniciar el contenedor.
+# AUTH_USERNAME/AUTH_PASSWORD (variables de entorno) solo se usan como
+# semilla la PRIMERA vez que arranca (si no existe aún ese archivo). Si ni
+# siquiera hay AUTH_PASSWORD, se genera una aleatoria y se imprime una vez
+# en los logs -- preferible a un valor por defecto adivinable.
+_CREDENTIALS_FILE = Path(DATA_PATH) / '.manager_credentials.json'
+_credentials_lock = threading.Lock()
+
+
+def _load_or_init_credentials():
+    try:
+        if _CREDENTIALS_FILE.exists():
+            data = json.loads(_CREDENTIALS_FILE.read_text())
+            if data.get('username') and data.get('password_hash'):
+                return data['username'], data['password_hash']
+    except (OSError, ValueError, KeyError) as e:
+        logger.warning(f'No se pudo leer credenciales guardadas ({e}); se reinicializan desde variables de entorno.')
+
+    username = os.environ.get('AUTH_USERNAME', 'admin')
+    password = os.environ.get('AUTH_PASSWORD', 'admin')
     logger.warning('=' * 70)
-    logger.warning('AUTH_PASSWORD no configurada. Contraseña generada para este arranque:')
-    logger.warning(f'  Usuario: {AUTH_USERNAME}')
-    logger.warning(f'  Contraseña: {AUTH_PASSWORD}')
-    logger.warning('Cambiará en cada reinicio del contenedor. Configura AUTH_PASSWORD')
-    logger.warning('en docker-compose.yml para fijar una contraseña permanente.')
+    logger.warning(f'Credenciales iniciales del panel -> usuario: {username} / contraseña: {password}')
+    logger.warning('Cámbialas cuanto antes desde el propio panel (⚙ Configuración).')
     logger.warning('=' * 70)
+
+    password_hash = generate_password_hash(password)
+    _save_credentials(username, password_hash)
+    return username, password_hash
+
+
+def _save_credentials(username, password_hash):
+    try:
+        _CREDENTIALS_FILE.write_text(json.dumps({'username': username, 'password_hash': password_hash}))
+    except OSError as e:
+        logger.error(f'No se pudieron guardar las credenciales en disco: {e}')
+
+
+_current_username, _current_password_hash = _load_or_init_credentials()
+
+
+def _check_credentials(username, password):
+    with _credentials_lock:
+        valid_user = hmac.compare_digest(username, _current_username)
+        valid_pass = check_password_hash(_current_password_hash, password)
+    return valid_user and valid_pass
+
+
+def _update_credentials(new_username, new_password):
+    global _current_username, _current_password_hash
+    password_hash = generate_password_hash(new_password)
+    with _credentials_lock:
+        _current_username = new_username
+        _current_password_hash = password_hash
+        _save_credentials(new_username, password_hash)
 
 
 def _get_or_create_secret_key():
@@ -125,11 +169,7 @@ def login():
     username = (request.form.get('username') or '').strip()
     password = request.form.get('password') or ''
 
-    # Se comparan ambos campos sin cortocircuito (evita filtrar por timing
-    # si solo uno de los dos es incorrecto).
-    user_ok = hmac.compare_digest(username, AUTH_USERNAME)
-    pass_ok = hmac.compare_digest(password, AUTH_PASSWORD)
-    if user_ok and pass_ok:
+    if _check_credentials(username, password):
         _register_successful_login(ip)
         session.clear()
         session['logged_in'] = True
@@ -145,6 +185,36 @@ def login():
 def logout():
     session.clear()
     return redirect('/login')
+
+
+@app.route('/api/account/credentials', methods=['PATCH'])
+def change_credentials():
+    """Cambia el usuario/contraseña de acceso al panel. Requiere estar ya
+    autenticado (lo exige require_login) Y confirmar la contraseña actual,
+    para que una sesión robada no pueda usarse para expulsar al dueño real
+    cambiando las credenciales sin más."""
+    body = request.json or {}
+    current_password = body.get('currentPassword') or ''
+    new_username = (body.get('newUsername') or '').strip()
+    new_password = body.get('newPassword') or ''
+
+    with _credentials_lock:
+        current_username = _current_username
+        current_hash = _current_password_hash
+    if not check_password_hash(current_hash, current_password):
+        return jsonify({'error': 'La contraseña actual no es correcta'}), 401
+
+    if not new_username:
+        new_username = current_username
+    if not new_password:
+        return jsonify({'error': 'La nueva contraseña no puede estar vacía'}), 400
+    if len(new_password) < 4:
+        return jsonify({'error': 'La nueva contraseña es demasiado corta (mínimo 4 caracteres)'}), 400
+
+    _update_credentials(new_username, new_password)
+    logger.info(f'Credenciales de acceso actualizadas (usuario: {new_username!r})')
+    return jsonify({'success': True, 'username': new_username})
+
 
 # ─── Bloqueo de reconexión tras "Desconectar" ────────────────────────────────
 # MediaMTX no ofrece una forma nativa de rechazar permanentemente a un
