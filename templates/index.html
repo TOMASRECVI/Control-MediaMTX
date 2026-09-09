@@ -293,6 +293,7 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
       <input type="password" id="accNewPasswordConfirm" autocomplete="new-password">
     </div>
     <div class="actions" style="margin-bottom:1.5rem">
+      <button class="btn" onclick="closeAccountSettings()">Cancelar</button>
       <button class="btn primary" id="saveCredentialsBtn" onclick="saveCredentials()">Guardar credenciales</button>
     </div>
 
@@ -306,6 +307,7 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
       <input type="number" id="mtxPort" placeholder="9997" min="1" max="65535">
     </div>
     <div class="actions">
+      <button class="btn" onclick="closeAccountSettings()">Cancelar</button>
       <button class="btn primary" id="saveMediamtxBtn" onclick="saveMediamtxConfig()">Guardar conexión</button>
     </div>
   </div>
