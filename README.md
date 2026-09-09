@@ -46,8 +46,22 @@ El script:
 
 3. **Accede a la interfaz**:
    ```
-   http://192.168.1.147:8080
+   http://<ip-de-tu-servidor>:8080
    ```
+
+### Opción 3: Paquete de instalación genérico
+
+Si vas a desplegar esto en un servidor nuevo (no el original del proyecto),
+usa la carpeta [`install/`](install/README.md): un `docker-compose.yml`
+configurable por variables de entorno (`.env`), sin nada específico de
+ninguna red en concreto, con guía paso a paso incluida.
+
+```bash
+git clone https://github.com/TOMASRECVI/Control-MediaMTX.git
+cd Control-MediaMTX/install
+cp .env.example .env   # edita con los datos de tu servidor
+docker compose up -d --build
+```
 
 ## 📖 Documentación
 

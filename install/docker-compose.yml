@@ -1,0 +1,44 @@
+# ------------------------------------------------------------------
+#  MediaMTX Recording Manager — instalación genérica
+#  Pensado para desplegar en CUALQUIER servidor que ya tenga un
+#  contenedor de MediaMTX corriendo. No contiene datos de ninguna red
+#  en concreto: todo se configura vía el archivo .env de esta carpeta.
+#
+#  USO:
+#    1. cp .env.example .env
+#    2. Edita .env con los datos de tu propio servidor
+#    3. docker compose up -d --build
+#    4. Abre http://<tu-servidor>:MANAGER_PORT (ver README.md)
+# ------------------------------------------------------------------
+
+services:
+  mediamtx-manager:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: mediamtx-manager
+    restart: unless-stopped
+    ports:
+      - "${MANAGER_PORT:-8080}:8080"
+    environment:
+      MEDIAMTX_API: "${MEDIAMTX_API}"
+      AUTH_USERNAME: "${AUTH_USERNAME:-admin}"
+      AUTH_PASSWORD: "${AUTH_PASSWORD}"
+    volumes:
+      - mediamtx_data:/data
+    networks:
+      - mediamtx_net
+
+# Los nombres de la izquierda (mediamtx_net, mediamtx_data) son solo alias
+# internos de este archivo: Compose no permite variables de entorno como
+# clave de "networks:"/"volumes:", así que el nombre REAL externo se pasa
+# con "name:", que sí admite variables.
+networks:
+  mediamtx_net:
+    external: true
+    name: ${MEDIAMTX_NETWORK}
+
+volumes:
+  mediamtx_data:
+    external: true
+    name: ${MEDIAMTX_DATA_VOLUME}
