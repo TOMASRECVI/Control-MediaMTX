@@ -78,7 +78,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --extra-cflags="-I/opt/armv7/include" \
         --extra-ldflags="-L/opt/armv7/lib -static -static-libgcc -static-libstdc++" \
         --disable-neon \
-        --extra-libs="-Wl,--start-group -lstdc++ -lgcc -lc -Wl,--end-group" \
+        --extra-libs="-Wl,--start-group -lstdc++ -lgcc -lc -latomic -Wl,--end-group" \
         --pkg-config-flags="--static" \
         --enable-static --disable-shared \
         --enable-gpl --enable-version3 \
