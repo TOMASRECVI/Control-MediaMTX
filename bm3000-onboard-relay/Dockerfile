@@ -18,7 +18,10 @@
 #   4. Por eso este Dockerfile usa MUSL en vez de glibc: musl no hace
 #      esa comprobacion de version de kernel, esta pensada precisamente
 #      para producir binarios estaticos portables entre kernels viejos.
-#      El toolchain se baja de musl.cc (fuente estandar para esto).
+#      El toolchain sale de la imagen messense/rust-musl-cross (Docker
+#      Hub) -- musl.cc (la fuente "oficial" de estos toolchains) esta
+#      caida/inalcanzable desde los runners de GitHub Actions, así que
+#      se usa esta imagen ya publicada con el mismo toolchain dentro.
 #
 # Uso (en un servidor con Docker, p.ej. 192.168.1.147):
 #   docker build -t bm3000-ffmpeg-builder .
@@ -29,25 +32,24 @@
 # El resultado es un unico fichero "ffmpeg_armv7" que se copia al
 # encoder por telnet/ftp (ver README.md).
 
-FROM debian:bookworm AS build
+FROM messense/rust-musl-cross:armv5te-musleabi AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates cmake make pkg-config git \
+        cmake pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Toolchain estatico musl para ARMv5 soft-float (sin FPU asumida).
-RUN curl -fL -o /tmp/toolchain.tgz https://musl.cc/armv5l-linux-musleabi-cross.tgz && \
-    mkdir -p /opt && tar -xzf /tmp/toolchain.tgz -C /opt && \
-    rm /tmp/toolchain.tgz
+# Diagnostico: no tengo memorizado el nombre exacto del binario gcc
+# dentro de esta imagen -- lo buscamos en vez de adivinar a ciegas.
+RUN echo "--- buscando compiladores cruzados ---"; \
+    find / -xdev -iname "*-gcc" -o -iname "*-g++" 2>/dev/null | grep -v "/proc" ; \
+    echo "--- variables de entorno relevantes ---"; \
+    env | grep -iE "^CC|^CXX|^AR|^TARGET|^CROSS" || true
 
-ENV TOOLCHAIN=/opt/armv5l-linux-musleabi-cross
-ENV PATH="${TOOLCHAIN}/bin:${PATH}"
-ENV CROSS_TRIPLE=armv5l-linux-musleabi
+ENV CROSS_TRIPLE=armv5te-unknown-linux-musleabi
 ENV CC=${CROSS_TRIPLE}-gcc
 ENV CXX=${CROSS_TRIPLE}-g++
 ENV AR=${CROSS_TRIPLE}-ar
 ENV RANLIB=${CROSS_TRIPLE}-ranlib
-ENV STRIP=${CROSS_TRIPLE}-strip
 
 WORKDIR /src
 
@@ -60,8 +62,8 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
         -DCMAKE_SYSTEM_PROCESSOR=arm \
         -DCMAKE_C_COMPILER=$CC \
         -DCMAKE_CXX_COMPILER=$CXX \
-        -DCMAKE_AR=${TOOLCHAIN}/bin/${AR} \
-        -DCMAKE_RANLIB=${TOOLCHAIN}/bin/${RANLIB} \
+        -DCMAKE_AR=$(command -v ${AR}) \
+        -DCMAKE_RANLIB=$(command -v ${RANLIB}) \
         -DCMAKE_INSTALL_PREFIX=/opt/armv7 \
         -DENABLE_SHARED=OFF \
         -DENABLE_STATIC=ON \
