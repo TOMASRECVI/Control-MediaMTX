@@ -11,8 +11,11 @@
 # unidad NEON, solo VFP basico (confirmado en pruebas reales: un build
 # generico armv7 con NEON activado compila bien pero falla con "Illegal
 # instruction" al ejecutarlo en el equipo real). Por eso se fuerza
-# -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp y --disable-neon en
-# todo lo que se compila aqui (srt y ffmpeg).
+# -march=armv7-a -mfpu=vfpv3-d16 en todo lo que se compila aqui (srt y
+# ffmpeg). NO se toca -mfloat-abi: el toolchain de dockcross es hard-float
+# por defecto (sus crt*.o vienen asi) y forzar softfp rompe el link con
+# "uses VFP register arguments" -- pero eso no importa, nuestro binario es
+# independiente y no comparte convencion de llamada con "box".
 #
 # Uso (en un servidor con Docker, p.ej. 192.168.1.147):
 #   docker build -t bm3000-ffmpeg-builder .
@@ -40,8 +43,8 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
         -DENABLE_STATIC=ON \
         -DENABLE_APPS=OFF \
         -DENABLE_ENCRYPTION=OFF \
-        -DCMAKE_C_FLAGS="-static-libgcc -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp" \
-        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++ -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp" \
+        -DCMAKE_C_FLAGS="-static-libgcc -march=armv7-a -mfpu=vfpv3-d16" \
+        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++ -march=armv7-a -mfpu=vfpv3-d16" \
     && make -j"$(nproc)" && make install
 
 # Sin -DUSE_ENCLIB, con ENABLE_ENCRYPTION=OFF, srt.pc no declara ninguna
@@ -64,7 +67,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
         --enable-cross-compile \
         --pkg-config=pkg-config \
-        --extra-cflags="-I/opt/armv7/include -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp" \
+        --extra-cflags="-I/opt/armv7/include -march=armv7-a -mfpu=vfpv3-d16" \
         --extra-ldflags="-L/opt/armv7/lib -static -static-libgcc -static-libstdc++" \
         --disable-neon \
         --extra-libs="-Wl,--start-group -lstdc++ -lgcc -lc -Wl,--end-group" \
