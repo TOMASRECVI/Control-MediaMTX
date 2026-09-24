@@ -49,6 +49,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
     ./configure \
         --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
         --enable-cross-compile \
+        --pkg-config=pkg-config \
         --extra-cflags="-I/opt/armv7/include" \
         --extra-ldflags="-L/opt/armv7/lib -static" \
         --pkg-config-flags="--static" \
