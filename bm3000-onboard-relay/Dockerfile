@@ -105,7 +105,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --disable-avdevice --disable-postproc \
         --disable-everything \
         --enable-ffmpeg \
-        --enable-protocol=rtsp,tcp,udp,srt,file \
+        --enable-protocol=rtsp,tcp,udp,libsrt,file \
         --enable-demuxer=rtsp,rtp \
         --enable-muxer=mpegts,rtsp \
         --enable-parser=h264,hevc,aac \
