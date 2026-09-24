@@ -64,7 +64,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --enable-gpl --enable-version3 \
         --enable-libsrt \
         --disable-doc --disable-debug --disable-ffplay --disable-ffprobe \
-        --disable-avdevice --disable-postproc --disable-avfilter \
+        --disable-avdevice --disable-postproc \
         --disable-everything \
         --enable-ffmpeg \
         --enable-protocol=rtsp,tcp,udp,srt,file \
