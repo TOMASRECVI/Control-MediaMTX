@@ -7,15 +7,23 @@
 # el binario ligado a las llamadas al sistema que soporte el kernel del
 # equipo (confirmado Linux 3.0.8 via telnet).
 #
-# IMPORTANTE -- CPU sin NEON: el Cortex-A9 de este SoC (Hi3520D) no tiene
-# unidad NEON, solo VFP basico (confirmado en pruebas reales: un build
-# generico armv7 con NEON activado compila bien pero falla con "Illegal
-# instruction" al ejecutarlo en el equipo real). Por eso se fuerza
-# -march=armv7-a -mfpu=vfpv3-d16 en todo lo que se compila aqui (srt y
-# ffmpeg). NO se toca -mfloat-abi: el toolchain de dockcross es hard-float
-# por defecto (sus crt*.o vienen asi) y forzar softfp rompe el link con
-# "uses VFP register arguments" -- pero eso no importa, nuestro binario es
-# independiente y no comparte convencion de llamada con "box".
+# IMPORTANTE -- CPU sin FPU: el Cortex-A9 de este SoC (Hi3520D) no tiene
+# NINGUNA unidad de punto flotante por hardware (ni VFP ni NEON). Lo
+# confirman dos pruebas reales:
+#   1. Compilando para armv7 generico con NEON activado -> "Illegal
+#      instruction" al ejecutar en el equipo.
+#   2. Forzando -mfpu=vfpv3-d16 (VFP basico, sin NEON) -> SIGUE dando
+#      "Illegal instruction" -- es decir, ni siquiera el VFP mas basico
+#      existe en este chip.
+# Esto coincide con los atributos ELF del propio "box": declara ABI
+# "soft" (no "softfp"), que en la convencion ARM significa "sin FPU en
+# absoluto", no solo "convencion de llamada software con FPU real".
+#
+# Por eso se usa la imagen dockcross/linux-armv5 en vez de linux-armv7:
+# viene configurada de fabrica para ABI soft-float sin asumir ninguna
+# FPU, coherente con el hardware real. (linux-armv7 es hard-float por
+# defecto -- intentar forzar soft/vfpv3 sobre esa imagen choca con sus
+# crt*.o precompilados, que exigen convencion de llamada hard-float.)
 #
 # Uso (en un servidor con Docker, p.ej. 192.168.1.147):
 #   docker build -t bm3000-ffmpeg-builder .
@@ -26,7 +34,7 @@
 # El resultado es un unico fichero "ffmpeg_armv7" que se copia al
 # encoder por telnet/ftp (ver README.md).
 
-FROM dockcross/linux-armv7 AS build
+FROM dockcross/linux-armv5 AS build
 
 WORKDIR /src
 
@@ -43,8 +51,8 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
         -DENABLE_STATIC=ON \
         -DENABLE_APPS=OFF \
         -DENABLE_ENCRYPTION=OFF \
-        -DCMAKE_C_FLAGS="-static-libgcc -march=armv7-a -mfpu=vfpv3-d16" \
-        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++ -march=armv7-a -mfpu=vfpv3-d16" \
+        -DCMAKE_C_FLAGS="-static-libgcc" \
+        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++" \
     && make -j"$(nproc)" && make install
 
 # Sin -DUSE_ENCLIB, con ENABLE_ENCRYPTION=OFF, srt.pc no declara ninguna
@@ -67,7 +75,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
         --enable-cross-compile \
         --pkg-config=pkg-config \
-        --extra-cflags="-I/opt/armv7/include -march=armv7-a -mfpu=vfpv3-d16" \
+        --extra-cflags="-I/opt/armv7/include" \
         --extra-ldflags="-L/opt/armv7/lib -static -static-libgcc -static-libstdc++" \
         --disable-neon \
         --extra-libs="-Wl,--start-group -lstdc++ -lgcc -lc -Wl,--end-group" \
