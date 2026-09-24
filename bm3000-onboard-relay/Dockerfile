@@ -58,6 +58,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --pkg-config=pkg-config \
         --extra-cflags="-I/opt/armv7/include" \
         --extra-ldflags="-L/opt/armv7/lib -static -static-libgcc -static-libstdc++" \
+        --extra-libs="-Wl,--start-group -lstdc++ -lgcc -lc -Wl,--end-group" \
         --pkg-config-flags="--static" \
         --enable-static --disable-shared \
         --enable-gpl --enable-version3 \
