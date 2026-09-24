@@ -63,10 +63,10 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --enable-static --disable-shared \
         --enable-gpl --enable-version3 \
         --enable-libsrt \
-        --enable-ffmpeg \
         --disable-doc --disable-debug --disable-ffplay --disable-ffprobe \
         --disable-avdevice --disable-postproc --disable-avfilter \
         --disable-everything \
+        --enable-ffmpeg \
         --enable-protocol=rtsp,tcp,udp,srt,file \
         --enable-demuxer=rtsp,rtp \
         --enable-muxer=mpegts,rtsp \
