@@ -31,14 +31,21 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
         -DENABLE_SHARED=OFF \
         -DENABLE_STATIC=ON \
         -DENABLE_APPS=OFF \
-        -DUSE_ENCLIB=openssl-evp \
         -DENABLE_ENCRYPTION=OFF \
     && make -j"$(nproc)" && make install
+
+# Sin -DUSE_ENCLIB, con ENABLE_ENCRYPTION=OFF, srt.pc no declara ninguna
+# dependencia de OpenSSL -- si se pusieran ambas a la vez, srt.pc queda con
+# "Requires.private: openssl" y pkg-config falla al resolverla (no hay
+# openssl cross-compilado aqui), y ffmpeg lo reporta como "srt not found"
+# sin mas detalle. Verificamos aqui para no repetir ese diagnostico a ciegas.
+ENV PKG_CONFIG_PATH=/opt/armv7/lib/pkgconfig
+RUN pkg-config --debug --exists --print-errors "srt >= 1.3.0" || \
+    (echo "--- srt.pc ---"; cat /opt/armv7/lib/pkgconfig/srt.pc; false)
 
 # --- ffmpeg (solo lo imprescindible: demux RTSP, mux MPEG-TS, remux, protocolo SRT) ---
 RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg && \
     cd ffmpeg && \
-    PKG_CONFIG_PATH=/opt/armv7/lib/pkgconfig \
     ./configure \
         --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
         --enable-cross-compile \
