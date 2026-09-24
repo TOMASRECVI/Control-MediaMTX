@@ -40,8 +40,12 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
 # openssl cross-compilado aqui), y ffmpeg lo reporta como "srt not found"
 # sin mas detalle. Verificamos aqui para no repetir ese diagnostico a ciegas.
 ENV PKG_CONFIG_PATH=/opt/armv7/lib/pkgconfig
-RUN pkg-config --debug --exists --print-errors "srt >= 1.3.0" || \
-    (echo "--- srt.pc ---"; cat /opt/armv7/lib/pkgconfig/srt.pc; false)
+RUN echo "--- pkg-config --exists (sin --static) ---"; \
+    pkg-config --exists --print-errors "srt >= 1.3.0" && echo OK || echo FALLO; \
+    echo "--- pkg-config --exists --static (esto es lo que usa ffmpeg configure) ---"; \
+    pkg-config --exists --print-errors --static "srt >= 1.3.0" && echo OK || echo FALLO; \
+    echo "--- srt.pc ---"; cat /opt/armv7/lib/pkgconfig/srt.pc; \
+    echo "--- haisrt.pc ---"; cat /opt/armv7/lib/pkgconfig/haisrt.pc || true
 
 # --- ffmpeg (solo lo imprescindible: demux RTSP, mux MPEG-TS, remux, protocolo SRT) ---
 RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg && \
