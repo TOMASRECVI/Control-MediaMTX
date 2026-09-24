@@ -69,6 +69,8 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
         -DENABLE_STATIC=ON \
         -DENABLE_APPS=OFF \
         -DENABLE_ENCRYPTION=OFF \
+        -DCMAKE_C_FLAGS="-static-libgcc" \
+        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++" \
     && make -j"$(nproc)" && make install
 
 # Sin -DUSE_ENCLIB, con ENABLE_ENCRYPTION=OFF, srt.pc no declara ninguna
