@@ -1,10 +1,18 @@
 # Compila un ffmpeg ESTATICO para ARMv7 (Cortex-A9, confirmado via
 # .ARM.attributes del binario "box" del BM3000) con soporte SRT.
 #
-# Al ser 100% estatico (musl libc), NO depende de la uClibc del propio
-# BM3000 ni de su toolchain propietario de HiSilicon -- solo necesita
-# que el kernel Linux del dispositivo entienda las syscalls basicas
-# (socket/read/write/mmap...), disponibles desde kernels muy antiguos.
+# Al ser 100% estatico, NO depende de la uClibc del propio BM3000 ni de
+# su toolchain propietario de HiSilicon en tiempo de ejecucion -- pero
+# el toolchain de dockcross usa GLIBC (no musl), asi que sigue quedando
+# el binario ligado a las llamadas al sistema que soporte el kernel del
+# equipo (confirmado Linux 3.0.8 via telnet).
+#
+# IMPORTANTE -- CPU sin NEON: el Cortex-A9 de este SoC (Hi3520D) no tiene
+# unidad NEON, solo VFP basico (confirmado en pruebas reales: un build
+# generico armv7 con NEON activado compila bien pero falla con "Illegal
+# instruction" al ejecutarlo en el equipo real). Por eso se fuerza
+# -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp y --disable-neon en
+# todo lo que se compila aqui (srt y ffmpeg).
 #
 # Uso (en un servidor con Docker, p.ej. 192.168.1.147):
 #   docker build -t bm3000-ffmpeg-builder .
@@ -32,8 +40,8 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
         -DENABLE_STATIC=ON \
         -DENABLE_APPS=OFF \
         -DENABLE_ENCRYPTION=OFF \
-        -DCMAKE_C_FLAGS="-static-libgcc" \
-        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_C_FLAGS="-static-libgcc -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp" \
+        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++ -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp" \
     && make -j"$(nproc)" && make install
 
 # Sin -DUSE_ENCLIB, con ENABLE_ENCRYPTION=OFF, srt.pc no declara ninguna
@@ -56,8 +64,9 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
         --enable-cross-compile \
         --pkg-config=pkg-config \
-        --extra-cflags="-I/opt/armv7/include" \
+        --extra-cflags="-I/opt/armv7/include -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp" \
         --extra-ldflags="-L/opt/armv7/lib -static -static-libgcc -static-libstdc++" \
+        --disable-neon \
         --extra-libs="-Wl,--start-group -lstdc++ -lgcc -lc -Wl,--end-group" \
         --pkg-config-flags="--static" \
         --enable-static --disable-shared \
