@@ -82,3 +82,4 @@ RUN mkdir -p /out && cp /src/ffmpeg/ffmpeg /out/ffmpeg_armv7 && \
 
 FROM scratch AS export
 COPY --from=build /out/ffmpeg_armv7 /ffmpeg_armv7
+CMD ["/ffmpeg_armv7"]
