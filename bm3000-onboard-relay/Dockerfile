@@ -50,7 +50,7 @@ RUN echo "--- pkg-config --exists (sin --static) ---"; \
 # --- ffmpeg (solo lo imprescindible: demux RTSP, mux MPEG-TS, remux, protocolo SRT) ---
 RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg && \
     cd ffmpeg && \
-    ./configure \
+    (./configure \
         --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
         --enable-cross-compile \
         --pkg-config=pkg-config \
@@ -70,6 +70,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --enable-decoder=aac \
         --enable-bsf=h264_mp4toannexb \
         --enable-runtime-cpudetect \
+     || (echo "--- ffbuild/config.log (tail -n 200) ---"; tail -n 200 ffbuild/config.log; false)) \
     && make -j"$(nproc)"
 
 RUN mkdir -p /out && cp /src/ffmpeg/ffmpeg /out/ffmpeg_armv7 && \
