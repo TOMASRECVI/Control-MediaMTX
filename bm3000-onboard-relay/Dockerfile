@@ -1,0 +1,67 @@
+# Compila un ffmpeg ESTATICO para ARMv7 (Cortex-A9, confirmado via
+# .ARM.attributes del binario "box" del BM3000) con soporte SRT.
+#
+# Al ser 100% estatico (musl libc), NO depende de la uClibc del propio
+# BM3000 ni de su toolchain propietario de HiSilicon -- solo necesita
+# que el kernel Linux del dispositivo entienda las syscalls basicas
+# (socket/read/write/mmap...), disponibles desde kernels muy antiguos.
+#
+# Uso (en un servidor con Docker, p.ej. 192.168.1.147):
+#   docker build -t bm3000-ffmpeg-builder .
+#   docker create --name extract bm3000-ffmpeg-builder
+#   docker cp extract:/out/ffmpeg_armv7 .
+#   docker rm extract
+#
+# El resultado es un unico fichero "ffmpeg_armv7" que se copia al
+# encoder por telnet/ftp (ver README.md).
+
+FROM dockcross/linux-armv7 AS build
+
+WORKDIR /src
+
+# --- libsrt (Haivision) ---
+RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt && \
+    cd srt && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_TOOLCHAIN_FILE= \
+        -DCMAKE_C_COMPILER=$CC \
+        -DCMAKE_CXX_COMPILER=$CXX \
+        -DCMAKE_INSTALL_PREFIX=/opt/armv7 \
+        -DENABLE_SHARED=OFF \
+        -DENABLE_STATIC=ON \
+        -DENABLE_APPS=OFF \
+        -DUSE_ENCLIB=openssl-evp \
+        -DENABLE_ENCRYPTION=OFF \
+    && make -j"$(nproc)" && make install
+
+# --- ffmpeg (solo lo imprescindible: demux RTSP, mux MPEG-TS, remux, protocolo SRT) ---
+RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg && \
+    cd ffmpeg && \
+    PKG_CONFIG_PATH=/opt/armv7/lib/pkgconfig \
+    ./configure \
+        --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
+        --enable-cross-compile \
+        --extra-cflags="-I/opt/armv7/include" \
+        --extra-ldflags="-L/opt/armv7/lib -static" \
+        --pkg-config-flags="--static" \
+        --enable-static --disable-shared \
+        --enable-gpl --enable-version3 \
+        --enable-libsrt \
+        --disable-doc --disable-debug --disable-ffplay --disable-ffprobe \
+        --disable-avdevice --disable-postproc --disable-avfilter \
+        --disable-everything \
+        --enable-protocol=rtsp,tcp,udp,srt,file \
+        --enable-demuxer=rtsp,rtp \
+        --enable-muxer=mpegts,rtsp \
+        --enable-parser=h264,hevc,aac \
+        --enable-decoder=aac \
+        --enable-bsf=h264_mp4toannexb \
+        --enable-runtime-cpudetect \
+    && make -j"$(nproc)"
+
+RUN mkdir -p /out && cp /src/ffmpeg/ffmpeg /out/ffmpeg_armv7 && \
+    $CROSS_TRIPLE-strip /out/ffmpeg_armv7
+
+FROM scratch AS export
+COPY --from=build /out/ffmpeg_armv7 /ffmpeg_armv7

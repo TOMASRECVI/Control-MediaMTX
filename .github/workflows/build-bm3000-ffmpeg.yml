@@ -1,0 +1,39 @@
+name: Build BM3000 ffmpeg (SRT)
+
+# Compila ffmpeg estatico (ARMv7, con soporte SRT) para el relay del
+# BM3000, usando el Dockerfile de bm3000-onboard-relay/. Se dispara solo
+# en la rama dedicada a esto y deja el binario commiteado en la propia
+# rama (mas simple que gestionar artefactos via API).
+
+on:
+  push:
+    branches: ["bm3000-ffmpeg-build"]
+    paths:
+      - "bm3000-onboard-relay/Dockerfile"
+      - ".github/workflows/build-bm3000-ffmpeg.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilar ffmpeg estatico ARMv7 + libsrt
+        run: |
+          docker build -t bm3000-ffmpeg-builder bm3000-onboard-relay
+          docker create --name extract bm3000-ffmpeg-builder
+          docker cp extract:/ffmpeg_armv7 bm3000-onboard-relay/ffmpeg_armv7
+          docker rm extract
+          chmod +x bm3000-onboard-relay/ffmpeg_armv7
+          file bm3000-onboard-relay/ffmpeg_armv7
+
+      - name: Commitear el binario en esta misma rama
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f bm3000-onboard-relay/ffmpeg_armv7
+          git commit -m "ci: compilar ffmpeg_armv7 para BM3000" || echo "sin cambios que commitear"
+          git push

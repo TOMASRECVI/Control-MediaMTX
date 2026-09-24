@@ -1,0 +1,34 @@
+# ------------------------------------------------------------------
+#  BM3000 -> SRT relay
+#
+#  El encoder BM3000 no soporta SRT nativamente, solo RTMP/RTSP/HLS.
+#  Este contenedor recibe su stream (RTSP o RTMP, lo que tengas activado
+#  en el panel del BM3000) y lo republica en SRT (modo caller/publish)
+#  hacia MediaMTX. -c copy: sin recodificar, cero coste de CPU.
+#
+#  USO:
+#    1. cp .env.example .env  (edita con los datos de tu BM3000 y MediaMTX)
+#    2. docker compose up -d
+#    3. docker compose logs -f   (para verificar que conecta bien)
+# ------------------------------------------------------------------
+
+services:
+  bm3000-srt-relay:
+    image: jrottenberg/ffmpeg:6-alpine
+    container_name: bm3000-srt-relay
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        exec ffmpeg -nostdin -loglevel warning
+        ${BM3000_EXTRA_INPUT_FLAGS}
+        -i "${BM3000_SOURCE_URL}"
+        -c copy -f mpegts
+        "srt://${MEDIAMTX_HOST}:${SRT_PORT}?streamid=publish:${STREAM_NAME}&pkt_size=1316"
+    networks:
+      - mediamtx_default
+
+networks:
+  mediamtx_default:
+    external: true
