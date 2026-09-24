@@ -32,6 +32,8 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
         -DENABLE_STATIC=ON \
         -DENABLE_APPS=OFF \
         -DENABLE_ENCRYPTION=OFF \
+        -DCMAKE_C_FLAGS="-static-libgcc" \
+        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++" \
     && make -j"$(nproc)" && make install
 
 # Sin -DUSE_ENCLIB, con ENABLE_ENCRYPTION=OFF, srt.pc no declara ninguna
@@ -55,7 +57,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
         --enable-cross-compile \
         --pkg-config=pkg-config \
         --extra-cflags="-I/opt/armv7/include" \
-        --extra-ldflags="-L/opt/armv7/lib -static" \
+        --extra-ldflags="-L/opt/armv7/lib -static -static-libgcc -static-libstdc++" \
         --pkg-config-flags="--static" \
         --enable-static --disable-shared \
         --enable-gpl --enable-version3 \
