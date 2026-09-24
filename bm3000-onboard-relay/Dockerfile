@@ -1,29 +1,24 @@
-# Compila un ffmpeg ESTATICO para ARMv7 (Cortex-A9, confirmado via
-# .ARM.attributes del binario "box" del BM3000) con soporte SRT.
+# Compila un ffmpeg ESTATICO para ARMv5 (CPU real: Cortex-A9 sin FPU,
+# Hi3520D) con soporte SRT, usando un toolchain MUSL (no glibc).
 #
-# Al ser 100% estatico, NO depende de la uClibc del propio BM3000 ni de
-# su toolchain propietario de HiSilicon en tiempo de ejecucion -- pero
-# el toolchain de dockcross usa GLIBC (no musl), asi que sigue quedando
-# el binario ligado a las llamadas al sistema que soporte el kernel del
-# equipo (confirmado Linux 3.0.8 via telnet).
+# Historial de por que se llego a esta configuracion exacta (cada paso
+# se confirmo probando el binario en el equipo real por telnet):
 #
-# IMPORTANTE -- CPU sin FPU: el Cortex-A9 de este SoC (Hi3520D) no tiene
-# NINGUNA unidad de punto flotante por hardware (ni VFP ni NEON). Lo
-# confirman dos pruebas reales:
-#   1. Compilando para armv7 generico con NEON activado -> "Illegal
-#      instruction" al ejecutar en el equipo.
+#   1. dockcross/linux-armv7 con NEON activado -> "Illegal instruction"
+#      al ejecutar. El Cortex-A9 de este SoC no tiene NEON.
 #   2. Forzando -mfpu=vfpv3-d16 (VFP basico, sin NEON) -> SIGUE dando
-#      "Illegal instruction" -- es decir, ni siquiera el VFP mas basico
-#      existe en este chip.
-# Esto coincide con los atributos ELF del propio "box": declara ABI
-# "soft" (no "softfp"), que en la convencion ARM significa "sin FPU en
-# absoluto", no solo "convencion de llamada software con FPU real".
-#
-# Por eso se usa la imagen dockcross/linux-armv5 en vez de linux-armv7:
-# viene configurada de fabrica para ABI soft-float sin asumir ninguna
-# FPU, coherente con el hardware real. (linux-armv7 es hard-float por
-# defecto -- intentar forzar soft/vfpv3 sobre esa imagen choca con sus
-# crt*.o precompilados, que exigen convencion de llamada hard-float.)
+#      "Illegal instruction". El chip no tiene NINGUNA FPU, ni siquiera
+#      VFP basico -- coincide con que "box" declara ABI "soft" (no
+#      "softfp") en sus atributos ELF.
+#   3. Cambiando a dockcross/linux-armv5 (soft-float sin FPU de fabrica)
+#      -> compila y arranca sin error de instruccion ilegal, pero ahora
+#      falla con "FATAL: kernel too old" -- la GLIBC de ese toolchain
+#      exige un kernel >= 4.10, y el equipo corre Linux 3.0.8 (via
+#      telnet: uname -r).
+#   4. Por eso este Dockerfile usa MUSL en vez de glibc: musl no hace
+#      esa comprobacion de version de kernel, esta pensada precisamente
+#      para producir binarios estaticos portables entre kernels viejos.
+#      El toolchain se baja de musl.cc (fuente estandar para esto).
 #
 # Uso (en un servidor con Docker, p.ej. 192.168.1.147):
 #   docker build -t bm3000-ffmpeg-builder .
@@ -34,7 +29,25 @@
 # El resultado es un unico fichero "ffmpeg_armv7" que se copia al
 # encoder por telnet/ftp (ver README.md).
 
-FROM dockcross/linux-armv5 AS build
+FROM debian:bookworm AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates cmake make pkg-config git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Toolchain estatico musl para ARMv5 soft-float (sin FPU asumida).
+RUN curl -fL -o /tmp/toolchain.tgz https://musl.cc/armv5l-linux-musleabi-cross.tgz && \
+    mkdir -p /opt && tar -xzf /tmp/toolchain.tgz -C /opt && \
+    rm /tmp/toolchain.tgz
+
+ENV TOOLCHAIN=/opt/armv5l-linux-musleabi-cross
+ENV PATH="${TOOLCHAIN}/bin:${PATH}"
+ENV CROSS_TRIPLE=armv5l-linux-musleabi
+ENV CC=${CROSS_TRIPLE}-gcc
+ENV CXX=${CROSS_TRIPLE}-g++
+ENV AR=${CROSS_TRIPLE}-ar
+ENV RANLIB=${CROSS_TRIPLE}-ranlib
+ENV STRIP=${CROSS_TRIPLE}-strip
 
 WORKDIR /src
 
@@ -43,16 +56,17 @@ RUN git clone --depth 1 --branch v1.5.3 https://github.com/Haivision/srt.git srt
     cd srt && \
     mkdir build && cd build && \
     cmake .. \
-        -DCMAKE_TOOLCHAIN_FILE= \
+        -DCMAKE_SYSTEM_NAME=Linux \
+        -DCMAKE_SYSTEM_PROCESSOR=arm \
         -DCMAKE_C_COMPILER=$CC \
         -DCMAKE_CXX_COMPILER=$CXX \
+        -DCMAKE_AR=${TOOLCHAIN}/bin/${AR} \
+        -DCMAKE_RANLIB=${TOOLCHAIN}/bin/${RANLIB} \
         -DCMAKE_INSTALL_PREFIX=/opt/armv7 \
         -DENABLE_SHARED=OFF \
         -DENABLE_STATIC=ON \
         -DENABLE_APPS=OFF \
         -DENABLE_ENCRYPTION=OFF \
-        -DCMAKE_C_FLAGS="-static-libgcc" \
-        -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++" \
     && make -j"$(nproc)" && make install
 
 # Sin -DUSE_ENCLIB, con ENABLE_ENCRYPTION=OFF, srt.pc no declara ninguna
@@ -72,11 +86,11 @@ RUN echo "--- pkg-config --exists (sin --static) ---"; \
 RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg && \
     cd ffmpeg && \
     (./configure \
-        --arch=arm --target-os=linux --cross-prefix=$CROSS_TRIPLE- \
+        --arch=arm --target-os=linux --cross-prefix=${CROSS_TRIPLE}- \
         --enable-cross-compile \
         --pkg-config=pkg-config \
         --extra-cflags="-I/opt/armv7/include" \
-        --extra-ldflags="-L/opt/armv7/lib -static -static-libgcc -static-libstdc++" \
+        --extra-ldflags="-L/opt/armv7/lib -static" \
         --disable-neon \
         --extra-libs="-Wl,--start-group -lstdc++ -lgcc -lc -latomic -Wl,--end-group" \
         --pkg-config-flags="--static" \
@@ -98,7 +112,7 @@ RUN git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpe
     && make -j"$(nproc)"
 
 RUN mkdir -p /out && cp /src/ffmpeg/ffmpeg /out/ffmpeg_armv7 && \
-    $CROSS_TRIPLE-strip /out/ffmpeg_armv7
+    ${CROSS_TRIPLE}-strip /out/ffmpeg_armv7
 
 FROM scratch AS export
 COPY --from=build /out/ffmpeg_armv7 /ffmpeg_armv7
