@@ -491,6 +491,58 @@ def get_global_config():
         return jsonify({'error': str(e)}), 502
 
 
+def _format_yaml_scalar(value):
+    """Formatea un valor Python como valor YAML de una sola línea (nivel superior)."""
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return '[' + ', '.join(json.dumps(str(v)) for v in value) + ']'
+    if value is None:
+        return '""'
+    return json.dumps(str(value))
+
+
+def _persist_global_config_keys(updates):
+    """Escribe claves de config GLOBAL directamente en mediamtx.yml.
+
+    La API PATCH /v3/config/global de MediaMTX aplica el cambio en caliente
+    (se ve reflejado al momento en GET), pero NO lo guarda en el archivo:
+    un reinicio o recreación del contenedor de MediaMTX revierte cualquier
+    cambio hecho solo por esa vía (confirmado probándolo). Los patches de
+    pathDefaults/paths sí se guardan solos; los de config global no. Por
+    eso lo escribimos aquí también, a mano, para que sobreviva.
+    """
+    yaml_path = Path(DATA_PATH) / 'mediamtx.yml'
+    try:
+        lines = yaml_path.read_text().splitlines(keepends=True)
+    except OSError as e:
+        logger.warning(f'No se pudo leer mediamtx.yml para persistir cambios: {e}')
+        return
+
+    remaining = dict(updates)
+    for i, line in enumerate(lines):
+        for key in list(remaining.keys()):
+            if line.startswith(f'{key}:'):
+                comment = ''
+                hash_idx = line.find('#')
+                if hash_idx != -1:
+                    comment = '  ' + line[hash_idx:].rstrip('\n')
+                newline = '\n' if line.endswith('\n') else ''
+                lines[i] = f'{key}: {_format_yaml_scalar(remaining[key])}{comment}{newline}'
+                del remaining[key]
+                break
+
+    if remaining:
+        logger.warning(f'No se encontraron en mediamtx.yml las claves {list(remaining.keys())}; no se persistieron en disco.')
+
+    try:
+        yaml_path.write_text(''.join(lines))
+    except OSError as e:
+        logger.error(f'No se pudo escribir mediamtx.yml: {e}')
+
+
 @app.route('/api/config/global', methods=['PATCH'])
 def patch_global_config():
     """Actualiza config global. Uso típico: logLevel, logDestinations, logFile."""
@@ -502,6 +554,7 @@ def patch_global_config():
             timeout=REQUEST_TIMEOUT
         )
         r.raise_for_status()
+        _persist_global_config_keys(body)
         return jsonify({'success': True, **body})
     except http_requests.exceptions.RequestException as e:
         logger.error(f'Error patching global config: {e}')
