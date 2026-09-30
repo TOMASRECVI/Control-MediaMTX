@@ -93,8 +93,11 @@ cd /tmp/
 # --- relay SRT anadido ---
 # "box" se paso a segundo plano (el original lo dejaba en primer plano,
 # bloqueando el script) para poder lanzar esto despues sin matar el
-# arranque. Espera a que el RTSP local (rtsp://127.0.0.1:8554/0) este
-# arriba y lo republica en SRT -- ver srt_relay.sh para el modo
-# (listener por defecto, o caller).
-chmod 777 srt_relay.sh ffmpeg_armv7
-./srt_relay.sh &
+# arranque. ffmpeg_armv7 y srt_relay.sh viven en /box/ (particion
+# persistente), NO empaquetados dentro de este obj.rar -- el flash del
+# BM3000 solo tiene ~28MB y no sobra espacio para duplicar un archivo de
+# 7-8MB durante una actualizacion si ademas lleva dentro un binario de
+# 4+MB. La config real (servidor/puerto/streamid) vive en
+# /box/srt_relay.conf -- ver comentario al principio de srt_relay.sh.
+chmod 777 /box/srt_relay.sh /box/ffmpeg_armv7 2>/dev/null
+/box/srt_relay.sh &

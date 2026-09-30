@@ -14,11 +14,27 @@
 #       tipo srt://184.174.32.56:44560?streamid=publish/festaro).
 #
 # Requiere el binario estatico ffmpeg_armv7 (ver Dockerfile de este
-# mismo directorio) en la misma carpeta.
+# mismo directorio). Vive en /box/ (particion persistente JFFS2), NO
+# dentro del paquete obj.rar -- el flash del BM3000 solo tiene ~28MB y
+# no hay sitio para duplicar el archivo entero durante una actualizacion
+# si ffmpeg_armv7 (4+MB) va empaquetado dentro. Este propio script
+# tambien vive en /box/srt_relay.sh por el mismo motivo.
 #
-# Variables (editar aqui o exportarlas antes de llamar al script):
+# CONFIGURACION: si existe /box/srt_relay.conf (particion persistente
+# JFFS2, no /tmp) se carga aqui. Cambiar servidor/puerto/streamid en el
+# futuro es solo editar ese fichero de texto y reiniciar -- NO hace
+# falta volver a montar/reflashear obj.rar para nada. Ejemplo de
+# contenido de /box/srt_relay.conf:
+#   SRT_MODE=caller
+#   SRT_REMOTE_HOST=192.168.1.147
+#   SRT_REMOTE_PORT=8890
+#   SRT_STREAMID=publish:bm3000
+[ -f /box/srt_relay.conf ] && . /box/srt_relay.conf
+
+# Variables (si no las puso /box/srt_relay.conf, o para pruebas manuales
+# exportandolas antes de llamar al script):
 RTSP_LOCAL="${RTSP_LOCAL:-rtsp://127.0.0.1:8554/0}"
-FFMPEG_BIN="${FFMPEG_BIN:-/tmp/ffmpeg_armv7}"
+FFMPEG_BIN="${FFMPEG_BIN:-/box/ffmpeg_armv7}"
 
 SRT_MODE="${SRT_MODE:-listener}"          # listener | caller
 SRT_PORT="${SRT_PORT:-9000}"              # usado solo en modo listener
@@ -26,7 +42,7 @@ SRT_PORT="${SRT_PORT:-9000}"              # usado solo en modo listener
 # --- solo para SRT_MODE=caller ---
 SRT_REMOTE_HOST="${SRT_REMOTE_HOST:-}"    # ej: 184.174.32.56
 SRT_REMOTE_PORT="${SRT_REMOTE_PORT:-}"    # ej: 44560
-SRT_STREAMID="${SRT_STREAMID:-publish/bm3000}"
+SRT_STREAMID="${SRT_STREAMID:-publish:bm3000}"          # MediaMTX usa ":" (confirmado funcionando)
 SRT_PASSPHRASE="${SRT_PASSPHRASE:-}"      # vacio = sin cifrado
 
 # --- Guarda de identidad: aborta si esto no es ESTE BM3000 concreto ---
@@ -39,15 +55,18 @@ if ! lsmod 2>/dev/null | grep -q '^hi3520D_h264e'; then
     exit 1
 fi
 
-# 2) Firmware exacto: el "box" en ejecucion debe coincidir con el de la
-#    version 2.89 / 3.37W5 (la que corre realmente en 192.168.1.93,
-#    confirmada via /get_version). Cambia este hash si flasheas otra.
-BOX_MD5_ESPERADO="08480eb6df66ec40ba1f9142a548f64b"
+# 2) Firmware conocido: el "box" en ejecucion debe coincidir con alguno
+#    de los equipos BM3000 ya verificados manualmente por telnet. Anade
+#    aqui el md5sum de /tmp/box de cada unidad nueva que se despliegue.
+BOX_MD5_CONOCIDOS="08480eb6df66ec40ba1f9142a548f64b 09d9e4e225758d746ef4c24982cc745d 6e020576f6039e0f3c83046d07c99642"
 BOX_MD5_REAL="$(md5sum /tmp/box 2>/dev/null | cut -d' ' -f1)"
-if [ "$BOX_MD5_REAL" != "$BOX_MD5_ESPERADO" ]; then
-    echo "ABORTO: /tmp/box no coincide con el firmware BM3000 esperado (md5=$BOX_MD5_REAL)." >&2
-    exit 1
-fi
+case " $BOX_MD5_CONOCIDOS " in
+    *" $BOX_MD5_REAL "*) ;;
+    *)
+        echo "ABORTO: /tmp/box no coincide con ningun firmware BM3000 conocido (md5=$BOX_MD5_REAL)." >&2
+        exit 1
+        ;;
+esac
 
 # 3) (Opcional, mas fuerte) Unidad fisica exacta: descomenta y rellena la
 #    MAC real de TU BM3000 (cat /sys/class/net/eth0/address en el equipo)
@@ -59,10 +78,24 @@ fi
 #     exit 1
 # fi
 
+# Timeout (en microsegundos) para operaciones de socket RTSP/IO. Sin
+# esto, si "box" corta el RTSP interno (p.ej. al desactivar el switch
+# RTSP en la web) ffmpeg se queda colgado esperando datos de una
+# conexion muerta en vez de fallar -- y el bucle de reintento de mas
+# abajo nunca llega a relanzarlo, ni siquiera cuando el RTSP vuelve.
+# Con 5s se vio en pruebas reales que a veces corta la propia fase de
+# deteccion de codec al reconectar ("Could not find codec parameters")
+# justo antes de estabilizarse, entrando en un bucle de reconexion
+# fallida. 10s da mas margen a esa fase sin perder la proteccion contra
+# el cuelgue original.
+IO_TIMEOUT_US="${IO_TIMEOUT_US:-10000000}"
+
 # Espera a que "box" tenga su servidor RTSP arriba antes de conectar.
+# (usa "-f mpegts" a /dev/null en vez de "-f null": este build no incluye
+# el muxer "null", solo mpegts/rtsp -- confirmado en pruebas reales).
 i=0
 while [ $i -lt 30 ]; do
-    "$FFMPEG_BIN" -v quiet -rtsp_transport tcp -i "$RTSP_LOCAL" -t 1 -f null - 2>/dev/null
+    "$FFMPEG_BIN" -nostdin -v quiet -rtsp_transport tcp -timeout "$IO_TIMEOUT_US" -i "$RTSP_LOCAL" -t 1 -c copy -f mpegts /dev/null 2>/dev/null
     if [ $? -eq 0 ]; then
         break
     fi
@@ -87,10 +120,12 @@ fi
 # Bucle de reintento infinito: si el proceso muere, la conexion cae, o
 # (en modo caller) el servidor remoto no esta disponible, se relanza
 # solo. Esto sustituye al "restart: unless-stopped" que tendria un
-# contenedor Docker, pero corriendo dentro del propio encoder.
+# contenedor Docker, pero corriendo dentro del propio encoder. Los
+# timeouts de arriba son los que garantizan que "muere" pase de verdad
+# cuando el RTSP se corta, en vez de quedarse colgado para siempre.
 while true; do
     "$FFMPEG_BIN" -nostdin -loglevel warning \
-        -rtsp_transport tcp -i "$RTSP_LOCAL" \
+        -rtsp_transport tcp -timeout "$IO_TIMEOUT_US" -i "$RTSP_LOCAL" \
         -c copy -f mpegts \
         "$SRT_URL"
     sleep 3
