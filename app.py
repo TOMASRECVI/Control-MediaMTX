@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+import bm3000
+
 app = Flask(__name__)
 CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -188,7 +190,7 @@ def require_login():
         return None
     if session.get('logged_in'):
         return None
-    if request.path.startswith('/api/') or request.path.startswith('/video/'):
+    if request.path.startswith('/api/') or request.path.startswith('/video/') or request.path.startswith('/hlsview/'):
         return jsonify({'error': 'No autenticado'}), 401
     return redirect('/login')
 
@@ -1106,6 +1108,77 @@ def get_live_paths():
         return jsonify({'error': str(e), 'items': []}), 502
 
 
+# ─── Proxy HLS (visor en vivo) ────────────────────────────────────────────────
+# MediaMTX sirve su HLS nativo en el puerto 8888 sin autenticación propia. El
+# panel antes apuntaba el iframe ahí directamente; funcionaba en LAN pero para
+# verlo desde fuera había que abrir el 8888 a internet, dejando el stream en
+# directo accesible a cualquiera sin pasar por el login del panel. Este proxy
+# hace que el navegador solo hable con el panel (que sí exige sesión) y este
+# reenvía la petición a MediaMTX.
+#
+# La página/JS que sirve MediaMTX usa únicamente rutas relativas ("hls.min.js",
+# "index.m3u8"), así que basta con preservar el subpath tal cual bajo
+# /hlsview/ para que todo siga resolviendo bien en el navegador.
+#
+# MediaMTX antepone un "cookieCheck" (redirect 302 + Set-Cookie) antes de
+# servir el manifiesto, con la cookie marcada Secure/SameSite=None (pensada
+# para HTTPS). Como el panel puede servir por HTTP plano, hay que reescribirla
+# (quitar Secure/Partitioned, relajar SameSite) o el navegador la descarta y
+# el cookieCheck nunca se supera. También hay que reescribir el Location del
+# redirect para mantener el prefijo /hlsview/.
+_HLS_PROXY_EXCLUDED_HEADERS = {'content-encoding', 'transfer-encoding', 'connection', 'content-length'}
+# Cabeceras de la petición del cliente que hay que reenviar tal cual a
+# MediaMTX. Range es crítica: el LL-HLS con fMP4 pide sub-rangos de bytes
+# dentro de un segmento que todavía se está escribiendo (las "parts" de
+# #EXT-X-PART), y si el proxy la ignora, MediaMTX devuelve el archivo
+# completo (200) en vez del rango pedido (206) -- el reproductor recibe
+# datos con el offset equivocado y falla al decodificar, sin que se vea
+# como error en el log de accesos (sigue siendo un 200).
+_HLS_PROXY_FORWARDED_REQUEST_HEADERS = ('Range', 'If-Range', 'If-Modified-Since', 'If-None-Match')
+
+
+def _hls_upstream_base():
+    host = urlparse(MEDIAMTX_API).hostname or 'mediamtx'
+    return f'http://{host}:8888'
+
+
+@app.route('/hlsview/<path:subpath>')
+def hlsview_proxy(subpath):
+    """Proxy autenticado hacia el servidor HLS nativo de MediaMTX (puerto 8888)."""
+    upstream_url = f'{_hls_upstream_base()}/{subpath}'
+    forward_headers = {
+        h: request.headers[h] for h in _HLS_PROXY_FORWARDED_REQUEST_HEADERS if h in request.headers
+    }
+    try:
+        r = http_requests.get(
+            upstream_url,
+            params=request.args,
+            cookies=request.cookies,
+            headers=forward_headers,
+            timeout=(5, 30),
+            stream=True,
+            allow_redirects=False,
+        )
+    except http_requests.exceptions.RequestException as e:
+        logger.error(f'Error proxying HLS request {subpath}: {e}')
+        return jsonify({'error': str(e)}), 502
+
+    headers = []
+    for key, value in r.raw.headers.items():
+        key_lower = key.lower()
+        if key_lower in _HLS_PROXY_EXCLUDED_HEADERS:
+            continue
+        if key_lower == 'set-cookie':
+            value = re.sub(r';\s*Secure', '', value, flags=re.IGNORECASE)
+            value = re.sub(r';\s*Partitioned', '', value, flags=re.IGNORECASE)
+            value = re.sub(r';\s*SameSite=None', '; SameSite=Lax', value, flags=re.IGNORECASE)
+        elif key_lower == 'location' and value.startswith('/') and not value.startswith('/hlsview/'):
+            value = '/hlsview' + value
+        headers.append((key, value))
+
+    return Response(r.iter_content(chunk_size=65536), status=r.status_code, headers=headers)
+
+
 # ─── Stream Playback ─────────────────────────────────────────────────────────
 
 @app.route('/mjpeg/<path:name>')
@@ -1384,6 +1457,42 @@ def serve_video(filepath):
             'Cache-Control': 'no-cache'
         }
     )
+
+
+# ─── Encoders BM3000 (relay SRT) ─────────────────────────────────────────────
+# Estos equipos no tienen API ni SSH -- solo telnet manual (ver bm3000.py).
+# Este panel no se conecta a ellos: guarda la config deseada de cada uno y
+# genera el bloque de comandos para pegar a mano en una sesion de telnet.
+
+@app.route('/api/bm3000/encoders')
+def list_bm3000_encoders():
+    return jsonify(bm3000.load_encoders(DATA_PATH))
+
+
+@app.route('/api/bm3000/encoders', methods=['POST'])
+def create_bm3000_encoder():
+    body = request.json or {}
+    try:
+        encoders = bm3000.add_encoder(DATA_PATH, body.get('host', ''), body.get('label', ''))
+        return jsonify(encoders)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/bm3000/encoders/<path:encoder_id>', methods=['DELETE'])
+def delete_bm3000_encoder(encoder_id):
+    return jsonify(bm3000.remove_encoder(DATA_PATH, encoder_id))
+
+
+@app.route('/api/bm3000/encoders/<path:encoder_id>/config', methods=['PATCH'])
+def patch_bm3000_encoder_config(encoder_id):
+    body = request.json or {}
+    try:
+        encoder = bm3000.update_encoder_config(DATA_PATH, encoder_id, body)
+        commands = bm3000.generate_commands(encoder['config'])
+        return jsonify({'encoder': encoder, 'commands': commands})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
 
 # ─── Run ─────────────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ html{font-size:15px}
 body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;min-height:100vh}
 a{color:var(--accent);text-decoration:none}
 
-.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem;position:sticky;top:0;z-index:50}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.75rem 1.5rem;display:flex;align-items:center;flex-wrap:wrap;gap:.6rem 1rem;position:sticky;top:0;z-index:50}
 .topbar h1{font-size:1.15rem;font-weight:600;display:flex;align-items:center;gap:.5rem}
 .topbar .dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s}
 .topbar .dot.ok{background:var(--green)}.topbar .dot.fail{background:var(--red)}
@@ -52,6 +52,21 @@ a{color:var(--accent);text-decoration:none}
 .delete-after-row select{padding:6px 9px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:.85rem;font-family:inherit;cursor:pointer;min-width:100px}
 .delete-after-row select option{background:var(--card);color:var(--text)}
 .delete-after-row .da-current{font-size:.78rem;color:var(--muted);margin-left:auto;white-space:nowrap}
+
+/* BM3000 encoders */
+.bm3000-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.85rem 1rem;margin-bottom:.85rem}
+.bm3000-item .bm3000-header{display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem;flex-wrap:wrap}
+.bm3000-item .bm3000-header .label{font-weight:600;font-size:.9rem}
+.bm3000-item .bm3000-header .host{font-family:ui-monospace,monospace;font-size:.78rem;color:var(--muted)}
+.bm3000-item .bm3000-header .spacer{flex:1}
+.bm3000-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-bottom:.75rem}
+.bm3000-grid label{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px}
+.bm3000-grid input,.bm3000-grid select{width:100%;padding:6px 9px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:.85rem;font-family:inherit}
+.bm3000-grid select option{background:var(--card);color:var(--text)}
+.bm3000-commands{margin-top:.75rem}
+.bm3000-commands pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.75rem .9rem;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.78rem;white-space:pre-wrap;word-break:break-all;margin-bottom:.5rem}
+.bm3000-add-row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;padding-top:.5rem;border-top:1px dashed var(--border);margin-top:.5rem}
+.bm3000-add-row input{padding:6px 9px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:.85rem;font-family:inherit}
 
 /* Recordings */
 .path-group{margin-bottom:1.25rem}
@@ -191,6 +206,10 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
   .seg-table{font-size:.78rem}
   .seg-table th,.seg-table td{padding:.4rem .45rem}
   .video-modal{width:100%;border-radius:0}
+  .topbar{padding:.65rem .85rem}
+  .topbar h1{width:100%}
+  .topbar .spacer{display:none}
+  .topbar .auto-label{display:none}
 }
 </style>
 </head>
@@ -237,6 +256,19 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent);cursor:
   <div class="card" id="logsCard">
     <h2>&#128220; Registros (logs)</h2>
     <div id="logsContent"><div class="loader"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Encoders BM3000 (relay SRT) -->
+  <div class="card" id="bm3000Card">
+    <h2>&#128225; Encoders BM3000 (SRT)</h2>
+    <p style="font-size:.8rem;color:var(--muted);margin-bottom:1rem">
+      Estos equipos no tienen API ni SSH: no hay conexión automática desde aquí.
+      Este panel guarda la configuración deseada de cada uno y genera el bloque
+      de comandos para pegar a mano en una sesión de telnet
+      (<code style="font-family:ui-monospace,monospace">telnet &lt;IP&gt;</code>,
+      entra directo como root sin usuario/contraseña).
+    </p>
+    <div id="bm3000Content"><div class="loader"><div class="spinner"></div></div></div>
   </div>
 
   <!-- Selection bar (hidden by default) -->
@@ -373,22 +405,19 @@ function onRefreshIntervalChange(value) {
   toast(ms > 0 ? ('Auto-refresco cada ' + (ms / 1000) + ' s') : 'Auto-refresco pausado', 'info');
 }
 
-// ─── Visor en vivo: iframe directo al servidor HLS nativo de MediaMTX ────
-// MediaMTX sirve HLS en su PROPIO servidor HTTP (puerto 8888 por defecto),
-// separado del puerto de esta API (9997/9996) y del de este panel (8080).
-// Es el método que MediaMTX recomienda (mediamtx.org/docs/read/web-browsers)
-// y el que se confirmó funcionando: http://<host>:8888/<nombre-stream>
-//
-// Si tu MediaMTX vive en un host distinto al de este panel, fija aquí el
-// valor directamente en vez de usar window.location.hostname, ej:
-// const MEDIAMTX_HLS_HOST = '192.168.1.147';
-const MEDIAMTX_HLS_HOST = window.location.hostname;
-const MEDIAMTX_HLS_PORT = 8888;
-
+// ─── Visor en vivo: iframe vía proxy autenticado hacia MediaMTX ──────────
+// MediaMTX sirve HLS en su PROPIO servidor HTTP (puerto 8888), sin login
+// propio. Antes el iframe apuntaba ahí directamente (funcionaba en LAN,
+// pero para verlo desde fuera de la red había que abrir el 8888 a
+// internet, dejando el stream en directo accesible a cualquiera sin pasar
+// por el login del panel). Ahora pasa por /hlsview/, que el backend de
+// este panel reenvía a MediaMTX exigiendo la misma sesión que el resto
+// del panel (ver app.py: hlsview_proxy).
 function mediamtxHlsUrl(streamName) {
   // query params soportados por el reproductor nativo de MediaMTX:
   // ?muted=false  ?autoplay=true  ?controls=false
-  return `http://${MEDIAMTX_HLS_HOST}:${MEDIAMTX_HLS_PORT}/${encodeURIComponent(streamName)}?autoplay=true&muted=true&controls=true`;
+  const encodedPath = streamName.split('/').map(encodeURIComponent).join('/');
+  return `/hlsview/${encodedPath}/?autoplay=true&muted=true&controls=true`;
 }
 let confirmCallback = null;
 let selectedSegments = new Map(); // key: "path|start" -> {path, start}
@@ -871,6 +900,129 @@ async function saveLogsConfig() {
     await api('/config/global', { method: 'PATCH', body: { logLevel, logDestinations, logFile } });
     toast('✓ Configuración de logs actualizada', 'success');
     await loadLogsConfig();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ── Encoders BM3000 (relay SRT) ─────────────────────────────────
+// Panel puramente local: no se conecta a los equipos. Guarda la config
+// deseada de cada uno y genera el bloque de comandos de telnet para
+// copiar/pegar a mano.
+async function loadBm3000Encoders() {
+  const el = document.getElementById('bm3000Content');
+  try {
+    const encoders = await api('/bm3000/encoders');
+    el.innerHTML = encoders.map(renderBm3000Encoder).join('') + renderBm3000AddRow();
+  } catch (e) {
+    el.innerHTML = '<div class="empty"><div class="icon">&#9888;</div><p>Error: ' + esc(e.message) + '</p></div>';
+  }
+}
+
+function renderBm3000Encoder(enc) {
+  const c = enc.config || {};
+  const mode = c.mode || 'caller';
+  const idAttr = enc.id.replace(/[^a-zA-Z0-9]/g, '_');
+  return (
+    '<div class="bm3000-item" data-encoder-id="' + esc(enc.id) + '">' +
+      '<div class="bm3000-header">' +
+        '<span class="label">' + esc(enc.label) + '</span>' +
+        '<span class="host">' + esc(enc.host) + '</span>' +
+        '<span class="spacer"></span>' +
+        '<button class="btn danger sm" onclick="deleteBm3000Encoder(\'' + esc(enc.id) + '\')">Eliminar</button>' +
+      '</div>' +
+      '<div class="bm3000-grid">' +
+        '<div><label>Modo</label><select id="bm3000_mode_' + idAttr + '" onchange="toggleBm3000Mode(\'' + idAttr + '\')">' +
+          '<option value="caller"' + (mode === 'caller' ? ' selected' : '') + '>caller (conecta él solo)</option>' +
+          '<option value="listener"' + (mode === 'listener' ? ' selected' : '') + '>listener (espera conexión)</option>' +
+        '</select></div>' +
+        '<div id="bm3000_callerFields_' + idAttr + '" style="display:' + (mode === 'caller' ? 'contents' : 'none') + '">' +
+          '<div><label>Servidor SRT remoto</label><input type="text" id="bm3000_remoteHost_' + idAttr + '" value="' + esc(c.remote_host || '') + '" placeholder="192.168.1.147"></div>' +
+          '<div><label>Puerto remoto</label><input type="text" id="bm3000_remotePort_' + idAttr + '" value="' + esc(c.remote_port || '') + '" placeholder="8890"></div>' +
+        '</div>' +
+        '<div id="bm3000_listenerFields_' + idAttr + '" style="display:' + (mode === 'listener' ? 'contents' : 'none') + '">' +
+          '<div><label>Puerto local</label><input type="text" id="bm3000_port_' + idAttr + '" value="' + esc(c.port || '9000') + '" placeholder="9000"></div>' +
+        '</div>' +
+        '<div><label>Streamid</label><input type="text" id="bm3000_streamid_' + idAttr + '" value="' + esc(c.streamid || '') + '" placeholder="publish:bm3000"></div>' +
+        '<div><label>Passphrase (opcional)</label><input type="text" id="bm3000_passphrase_' + idAttr + '" value="' + esc(c.passphrase || '') + '"></div>' +
+      '</div>' +
+      '<button class="btn success sm" onclick="generateBm3000Commands(\'' + esc(enc.id) + '\', \'' + idAttr + '\')">Generar comandos</button>' +
+      '<div class="bm3000-commands" id="bm3000_commandsWrap_' + idAttr + '" style="display:none">' +
+        '<pre id="bm3000_commandsText_' + idAttr + '"></pre>' +
+        '<button class="btn sm" onclick="copyBm3000Commands(\'' + idAttr + '\')">Copiar</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderBm3000AddRow() {
+  return (
+    '<div class="bm3000-add-row">' +
+      '<div><label style="display:block;font-size:.72rem;color:var(--muted);margin-bottom:3px">IP/host nuevo</label>' +
+        '<input type="text" id="bm3000_newHost" placeholder="192.168.1.200"></div>' +
+      '<div><label style="display:block;font-size:.72rem;color:var(--muted);margin-bottom:3px">Etiqueta</label>' +
+        '<input type="text" id="bm3000_newLabel" placeholder="BM3000 #4"></div>' +
+      '<button class="btn primary sm" onclick="addBm3000Encoder()">Añadir encoder</button>' +
+    '</div>'
+  );
+}
+
+function toggleBm3000Mode(idAttr) {
+  const mode = document.getElementById('bm3000_mode_' + idAttr).value;
+  document.getElementById('bm3000_callerFields_' + idAttr).style.display = mode === 'caller' ? 'contents' : 'none';
+  document.getElementById('bm3000_listenerFields_' + idAttr).style.display = mode === 'listener' ? 'contents' : 'none';
+}
+
+async function generateBm3000Commands(encoderId, idAttr) {
+  const mode = document.getElementById('bm3000_mode_' + idAttr).value;
+  const body = {
+    mode,
+    remote_host: document.getElementById('bm3000_remoteHost_' + idAttr).value.trim(),
+    remote_port: document.getElementById('bm3000_remotePort_' + idAttr).value.trim(),
+    port: document.getElementById('bm3000_port_' + idAttr).value.trim(),
+    streamid: document.getElementById('bm3000_streamid_' + idAttr).value.trim(),
+    passphrase: document.getElementById('bm3000_passphrase_' + idAttr).value.trim(),
+  };
+  try {
+    const res = await api('/bm3000/encoders/' + encodeURIComponent(encoderId) + '/config', { method: 'PATCH', body });
+    const wrap = document.getElementById('bm3000_commandsWrap_' + idAttr);
+    document.getElementById('bm3000_commandsText_' + idAttr).textContent = res.commands;
+    wrap.style.display = 'block';
+    toast('Comandos generados — pégalos en una sesión de telnet', 'success');
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function copyBm3000Commands(idAttr) {
+  const text = document.getElementById('bm3000_commandsText_' + idAttr).textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copiado al portapapeles', 'success');
+  } catch (e) {
+    toast('No se pudo copiar automáticamente, selecciona el texto a mano', 'error');
+  }
+}
+
+async function addBm3000Encoder() {
+  const host = document.getElementById('bm3000_newHost').value.trim();
+  const label = document.getElementById('bm3000_newLabel').value.trim();
+  if (!host) { toast('Indica la IP/host del encoder', 'error'); return; }
+  try {
+    await api('/bm3000/encoders', { method: 'POST', body: { host, label } });
+    toast('Encoder añadido', 'success');
+    await loadBm3000Encoders();
+  } catch (e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function deleteBm3000Encoder(encoderId) {
+  if (!confirm('¿Quitar este encoder de la lista? Esto no toca el equipo real, solo el panel.')) return;
+  try {
+    await api('/bm3000/encoders/' + encodeURIComponent(encoderId), { method: 'DELETE' });
+    toast('Encoder eliminado del panel', 'success');
+    await loadBm3000Encoders();
   } catch (e) {
     toast('Error: ' + e.message, 'error');
   }
@@ -1747,6 +1899,7 @@ async function manualRefresh() {
 }
 
 refresh();
+loadBm3000Encoders(); // panel estático, no entra en el ciclo de refresco periódico
 applyRefreshInterval(loadStoredRefreshInterval());
 
 document.addEventListener('keydown', e => {
