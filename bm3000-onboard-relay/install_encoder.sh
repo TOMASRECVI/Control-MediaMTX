@@ -20,7 +20,9 @@
 #   3. crea srt_relay.conf y httpd.conf SOLO si no existen (no pisa nada)
 #   4. engancha el arranque en /box/load (copia en load.orig), de modo que el
 #      relay y el panel sobreviven a los cambios de firmware (obj.rar)
-#   5. arranca el relay ahora, sin reiniciar
+#   5. cambia la etiqueta "RTSP URL" por "RTSP/SRT URL" en la web del equipo
+#      (srt_relay.sh la reaplica en cada arranque, tambien tras cambiar firmware)
+#   6. arranca el relay ahora, sin reiniciar
 #
 # Variables opcionales: BOX_DIR (por defecto /box), FORCE_FFMPEG=1 para
 # volver a descargar el binario, SKIP_CHECKS=1 (solo pruebas fuera del equipo).
@@ -43,7 +45,7 @@ esac
 case "$PORT" in *[!0-9]*) die "el puerto debe ser numerico";; esac
 [ ${#PPASS} -ge 5 ] || die "la contrasena del panel necesita al menos 5 caracteres"
 
-echo "== 1/5 Comprobaciones =="
+echo "== 1/6 Comprobaciones =="
 if [ "${SKIP_CHECKS:-0}" != "1" ]; then
     lsmod 2>/dev/null | grep -q '^hi3520D_h264e' || die "no es un Hi3520D (modulo hi3520D_h264e no cargado): ffmpeg_armv7 solo vale para ese chip"
     ok "chip Hi3520D"
@@ -65,7 +67,7 @@ fetch() {  # fetch <fichero_remoto> <destino> <tamano_minimo>
     ok "$1 ($SZ bytes)"
 }
 
-echo "== 2/5 Descarga de ficheros =="
+echo "== 2/6 Descarga de ficheros =="
 if [ ! -f "$BOX_DIR/ffmpeg_armv7" ] || [ "${FORCE_FFMPEG:-0}" = "1" ]; then
     fetch ffmpeg_armv7 "$BOX_DIR/ffmpeg_armv7" 1000000
 else
@@ -76,7 +78,7 @@ mkdir -p "$BOX_DIR/www/cgi-bin" || die "no se pudo crear $BOX_DIR/www/cgi-bin"
 fetch config.cgi "$BOX_DIR/www/cgi-bin/config.cgi" 3000
 echo '<meta http-equiv="refresh" content="0;url=/cgi-bin/config.cgi">' > "$BOX_DIR/www/index.html"
 
-echo "== 3/5 Configuracion (sin pisar la existente) =="
+echo "== 3/6 Configuracion (sin pisar la existente) =="
 if [ -f "$BOX_DIR/srt_relay.conf" ]; then
     ok "srt_relay.conf ya existe, se conserva:"; sed 's/^/        /' "$BOX_DIR/srt_relay.conf"
 else
@@ -95,7 +97,7 @@ else
     ok "panel: usuario admin, contrasena la indicada (cambiala desde el propio panel)"
 fi
 
-echo "== 4/5 Arranque en $BOX_DIR/load (sobrevive a cambios de firmware) =="
+echo "== 4/6 Arranque en $BOX_DIR/load (sobrevive a cambios de firmware) =="
 LOAD="$BOX_DIR/load"
 if grep -q 'srt_relay.sh' "$LOAD"; then
     ok "load ya lanza el relay, no se toca"
@@ -116,7 +118,23 @@ else
     ok "load modificado (copia de seguridad en $LOAD.orig; deshacer: cat $LOAD.orig > $LOAD)"
 fi
 
-echo "== 5/5 Arranque del relay =="
+echo "== 5/6 Etiqueta de la web del equipo: RTSP URL -> RTSP/SRT URL =="
+# La web vive en /tmp/web (RAM, se regenera desde obj.rar en cada arranque):
+# aqui se aplica ya mismo, y srt_relay.sh la reaplica en cada arranque (tambien
+# tras cambiar de firmware). Idempotente. WEB_PATCH=0 la desactiva.
+WEB_DIR="${WEB_DIR:-/tmp/web}"
+if [ "${WEB_PATCH:-1}" = "1" ] && [ -d "$WEB_DIR" ]; then
+    N=0
+    for f in $(grep -l 'RTSP URL' "$WEB_DIR"/*.html 2>/dev/null); do
+        sed 's/RTSP URL/RTSP\/SRT URL/g' "$f" > "$f.tmp" && cat "$f.tmp" > "$f"
+        rm -f "$f.tmp"; N=$((N+1))
+    done
+    ok "$N pagina(s) actualizada(s); si no ves el cambio, recarga la web con Ctrl+F5"
+else
+    ok "sin cambios (WEB_PATCH=0 o no existe $WEB_DIR)"
+fi
+
+echo "== 6/6 Arranque del relay =="
 if [ "${SKIP_CHECKS:-0}" = "1" ]; then
     echo "  (SKIP_CHECKS: no se arranca nada)"
 else

@@ -75,6 +75,18 @@ if ! lsmod 2>/dev/null | grep -q '^hi3520D_h264e'; then
     exit 1
 fi
 
+# 1b) Etiqueta de la web del equipo: "RTSP URL" -> "RTSP/SRT URL". La web
+#     vive en /tmp/web (RAM) y se regenera desde obj.rar en cada arranque,
+#     asi que se reaplica aqui; ya esta todo extraido (el modulo del chip
+#     lo carga el "run" despues de descomprimir). Idempotente: "RTSP/SRT URL"
+#     no contiene "RTSP URL". Desactivar con WEB_PATCH=0 en srt_relay.conf.
+if [ "${WEB_PATCH:-1}" = "1" ] && [ -d /tmp/web ]; then
+    for f in $(grep -l 'RTSP URL' /tmp/web/*.html 2>/dev/null); do
+        sed 's/RTSP URL/RTSP\/SRT URL/g' "$f" > "$f.tmp" && cat "$f.tmp" > "$f"
+        rm -f "$f.tmp"
+    done
+fi
+
 # 2) Firmware: el "box" en ejecucion se compara con los hashes ya
 #    verificados. Con un firmware desconocido NO se aborta (el chip ya esta
 #    comprobado arriba y el binario de ffmpeg es el mismo para todos los
