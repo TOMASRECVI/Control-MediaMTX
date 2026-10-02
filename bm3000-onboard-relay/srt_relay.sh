@@ -78,6 +78,15 @@ esac
 #     exit 1
 # fi
 
+# Panel web de configuracion (puerto PANEL_PORT, 8090 por defecto, ver config.cgi). Solo arranca
+# si existe /box/httpd.conf (con la linea "/:usuario:contrasena" para
+# autenticacion basica) -- sin ese fichero no se expone nada, para no
+# dejar un panel de escritura abierto por defecto.
+if [ -f /box/httpd.conf ] && [ -x /box/www/cgi-bin/config.cgi ]; then
+    PANEL_PORT="${PANEL_PORT:-8090}"
+    ps | grep -q "[h]ttpd -p $PANEL_PORT" || busybox httpd -p "$PANEL_PORT" -h /box/www -c /box/httpd.conf
+fi
+
 # Timeout (en microsegundos) para operaciones de socket RTSP/IO. Sin
 # esto, si "box" corta el RTSP interno (p.ej. al desactivar el switch
 # RTSP en la web) ffmpeg se queda colgado esperando datos de una
