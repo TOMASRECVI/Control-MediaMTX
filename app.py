@@ -20,8 +20,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-import bm3000
-
 app = Flask(__name__)
 CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -1457,42 +1455,6 @@ def serve_video(filepath):
             'Cache-Control': 'no-cache'
         }
     )
-
-
-# ─── Encoders BM3000 (relay SRT) ─────────────────────────────────────────────
-# Estos equipos no tienen API ni SSH -- solo telnet manual (ver bm3000.py).
-# Este panel no se conecta a ellos: guarda la config deseada de cada uno y
-# genera el bloque de comandos para pegar a mano en una sesion de telnet.
-
-@app.route('/api/bm3000/encoders')
-def list_bm3000_encoders():
-    return jsonify(bm3000.load_encoders(DATA_PATH))
-
-
-@app.route('/api/bm3000/encoders', methods=['POST'])
-def create_bm3000_encoder():
-    body = request.json or {}
-    try:
-        encoders = bm3000.add_encoder(DATA_PATH, body.get('host', ''), body.get('label', ''))
-        return jsonify(encoders)
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-
-
-@app.route('/api/bm3000/encoders/<path:encoder_id>', methods=['DELETE'])
-def delete_bm3000_encoder(encoder_id):
-    return jsonify(bm3000.remove_encoder(DATA_PATH, encoder_id))
-
-
-@app.route('/api/bm3000/encoders/<path:encoder_id>/config', methods=['PATCH'])
-def patch_bm3000_encoder_config(encoder_id):
-    body = request.json or {}
-    try:
-        encoder = bm3000.update_encoder_config(DATA_PATH, encoder_id, body)
-        commands = bm3000.generate_commands(encoder['config'])
-        return jsonify({'encoder': encoder, 'commands': commands})
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
 
 
 # ─── Run ─────────────────────────────────────────────────────────────────────
