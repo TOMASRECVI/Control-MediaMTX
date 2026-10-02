@@ -13,6 +13,23 @@ esc() { echo "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e '
 bad_chars() { case "$1" in *[!A-Za-z0-9._:/@-]*) return 0;; esac; return 1; }
 bad_cred() { case "$1" in *[!A-Za-z0-9._-]*) return 0;; esac; return 1; }
 
+# Estado del relay: stopped (sin ffmpeg), connecting o connected (ver el
+# bucle de srt_relay.sh, que escribe /tmp/srt_state).
+relay_code() {
+    if ! ps | grep -q '[f]fmpeg_armv7'; then echo stopped
+    elif [ "$(cat /tmp/srt_state 2>/dev/null)" = "connected" ]; then echo connected
+    else echo connecting; fi
+}
+
+# Consulta de estado para el JS de la pagina: primera linea = codigo, y si
+# no esta conectado, las ultimas lineas de ffmpeg (para ver el motivo).
+if [ "$QUERY_STRING" = "status=1" ]; then
+    CODE="$(relay_code)"
+    printf 'Content-type: text/plain\r\nCache-Control: no-store\r\n\r\n%s\n' "$CODE"
+    [ "$CODE" != "connected" ] && tail -n 4 /tmp/srt_last.log 2>/dev/null
+    exit 0
+fi
+
 [ -f "$CONF" ] && . "$CONF"
 MODE="${SRT_MODE:-caller}"
 HOST="$SRT_REMOTE_HOST"; RPORT="$SRT_REMOTE_PORT"; LPORT="${SRT_PORT:-9000}"
@@ -95,6 +112,7 @@ if [ -n "$QUERY_STRING" ]; then
                 MSG="ERROR: no se pudo escribir $CONF"
             else
                 for p in $(ps | grep -E '[s]rt_relay.sh|[f]fmpeg_armv7' | awk '{print $1}'); do kill "$p" 2>/dev/null; done
+                rm -f /tmp/srt_relay.pid
                 ( /box/srt_relay.sh >/dev/null 2>&1 </dev/null & )
                 MODE="$N_MODE"; HOST="$N_HOST"; RPORT="$N_RPORT"; LPORT="${N_LPORT:-9000}"; SID="$N_SID"; PASS="$N_PASS"
                 MSG="Guardado. Relay reiniciado con la nueva configuracion."
@@ -103,7 +121,6 @@ if [ -n "$QUERY_STRING" ]; then
     fi
 fi
 
-if ps | grep -q '[f]fmpeg_armv7'; then STATE="relay en marcha"; else STATE="relay parado (puede estar arrancando)"; fi
 SEL_C=""; SEL_L=""
 [ "$MODE" = "caller" ] && SEL_C=" selected"
 [ "$MODE" = "listener" ] && SEL_L=" selected"
@@ -117,8 +134,14 @@ label{display:block;margin-top:.8rem;font-size:.8rem;color:#8b949e}
 input,select{width:100%;padding:8px;background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:6px;box-sizing:border-box}
 button{margin-top:1.2rem;padding:10px 18px;background:#238636;color:#fff;border:0;border-radius:6px;cursor:pointer}
 h3{margin-top:2.2rem;border-top:1px solid #30363d;padding-top:1.2rem}
+.srt{display:flex;align-items:center;gap:.6rem;padding:10px 12px;border-radius:6px;background:#161b22;border:1px solid #30363d;font-size:.9rem}
+.dot{width:12px;height:12px;border-radius:50%;background:#8b949e;flex-shrink:0}
+.srt.ok .dot{background:#3fb950}.srt.wait .dot{background:#d29922}.srt.off .dot{background:#f85149}
+.log{font-size:.72rem;color:#8b949e;white-space:pre-wrap;word-break:break-all;margin:.4rem 0 0}
 .msg{margin-top:1rem;padding:8px;border-radius:6px;background:#1c2333}.st{color:#8b949e;font-size:.85rem}</style></head><body>
-<h2>BM3000 &mdash; relay SRT</h2><p class="st">$(esc "$STATE")</p>
+<h2>BM3000 &mdash; relay SRT</h2>
+<div id="srtst" class="srt wait"><span class="dot"></span><span id="srttxt">Comprobando estado...</span></div>
+<pre id="srtlog" class="log"></pre>
 $( [ -n "$MSG" ] && echo "<div class=\"msg\">$(esc "$MSG")</div>" )
 <form method="get" action="/cgi-bin/config.cgi"><input type="hidden" name="action" value="conf">
 <label>Modo</label><select name="mode"><option value="caller"$SEL_C>caller (el equipo se conecta al servidor)</option><option value="listener"$SEL_L>listener (el equipo espera conexion)</option></select>
@@ -137,5 +160,21 @@ $( [ -n "$MSG" ] && echo "<div class=\"msg\">$(esc "$MSG")</div>" )
 <label>Repite la contrasena nueva</label><input type="password" name="cnew2">
 <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer"><input type="checkbox" style="width:auto" onclick="var f=this.form,t=this.checked?'text':'password';f.cold.type=t;f.cnew.type=t;f.cnew2.type=t"> Mostrar contrasenas</label>
 <button type="submit">Cambiar acceso</button></form>
+<script>
+function pollState(){
+  var x=new XMLHttpRequest();
+  x.open('GET','/cgi-bin/config.cgi?status=1',true);
+  x.onload=function(){
+    var l=x.responseText.split('\n'),c=l[0],box=document.getElementById('srtst'),t=document.getElementById('srttxt');
+    if(c==='connected'){box.className='srt ok';t.textContent='Conectado al servidor SRT: enviando video';}
+    else if(c==='connecting'){box.className='srt wait';t.textContent='Intentando conectar con el servidor SRT...';}
+    else{box.className='srt off';t.textContent='Relay parado (puede estar arrancando)';}
+    document.getElementById('srtlog').textContent=(c==='connected')?'':l.slice(1).join('\n');
+  };
+  x.onerror=function(){var b=document.getElementById('srtst');b.className='srt off';document.getElementById('srttxt').textContent='Sin respuesta del panel';};
+  x.send();
+}
+pollState();setInterval(pollState,3000);
+</script>
 </body></html>
 EOF

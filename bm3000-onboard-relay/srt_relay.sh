@@ -49,22 +49,47 @@ SRT_PASSPHRASE="${SRT_PASSPHRASE:-}"      # vacio = sin cifrado
 # Evita que el script haga algo si se copia/ejecuta por error en otro
 # equipo (otro modelo, otro BM3000, o un PC durante pruebas).
 
+# Instancia unica: el relay puede lanzarlo /box/load y tambien el "run" de
+# un obj.rar antiguo; si ya hay otro vivo, este se retira.
+if [ -f /tmp/srt_relay.pid ]; then
+    OLDPID="$(cat /tmp/srt_relay.pid 2>/dev/null)"
+    if [ -n "$OLDPID" ] && [ "$OLDPID" != "$$" ] && kill -0 "$OLDPID" 2>/dev/null; then
+        exit 0
+    fi
+fi
+echo $$ > /tmp/srt_relay.pid
+
+# 0) Si este script lo lanza /box/load (arranque independiente de obj.rar,
+#    para que sobreviva a los cambios de firmware), arranca ANTES de que
+#    el firmware se descomprima y cargue los modulos: espera a que /tmp/box
+#    exista y el modulo del Hi3520D este cargado (hasta ~6 minutos).
+i=0
+while [ $i -lt 180 ]; do
+    [ -f /tmp/box ] && lsmod 2>/dev/null | grep -q '^hi3520D_h264e' && break
+    i=$((i+1)); sleep 2
+done
+
 # 1) Familia de hardware: el modulo de kernel del Hi3520D debe estar cargado.
 if ! lsmod 2>/dev/null | grep -q '^hi3520D_h264e'; then
     echo "ABORTO: modulo hi3520D_h264e no cargado -- esto no es un Hi3520D." >&2
     exit 1
 fi
 
-# 2) Firmware conocido: el "box" en ejecucion debe coincidir con alguno
-#    de los equipos BM3000 ya verificados manualmente por telnet. Anade
-#    aqui el md5sum de /tmp/box de cada unidad nueva que se despliegue.
+# 2) Firmware: el "box" en ejecucion se compara con los hashes ya
+#    verificados. Con un firmware desconocido NO se aborta (el chip ya esta
+#    comprobado arriba y el binario de ffmpeg es el mismo para todos los
+#    Hi3520D), solo se anota. Para exigir un firmware conocido, pon
+#    FW_STRICT=1 en /box/srt_relay.conf.
 BOX_MD5_CONOCIDOS="08480eb6df66ec40ba1f9142a548f64b 09d9e4e225758d746ef4c24982cc745d 6e020576f6039e0f3c83046d07c99642"
 BOX_MD5_REAL="$(md5sum /tmp/box 2>/dev/null | cut -d' ' -f1)"
 case " $BOX_MD5_CONOCIDOS " in
     *" $BOX_MD5_REAL "*) ;;
     *)
-        echo "ABORTO: /tmp/box no coincide con ningun firmware BM3000 conocido (md5=$BOX_MD5_REAL)." >&2
-        exit 1
+        echo "$BOX_MD5_REAL" > /tmp/srt_fw_desconocido
+        if [ "${FW_STRICT:-0}" = "1" ]; then
+            echo "ABORTO: /tmp/box no coincide con ningun firmware BM3000 conocido (md5=$BOX_MD5_REAL)." >&2
+            exit 1
+        fi
         ;;
 esac
 
@@ -132,10 +157,26 @@ fi
 # contenedor Docker, pero corriendo dentro del propio encoder. Los
 # timeouts de arriba son los que garantizan que "muere" pase de verdad
 # cuando el RTSP se corta, en vez de quedarse colgado para siempre.
+#
+# Estado para el panel web (config.cgi): /tmp/srt_state vale "connecting"
+# mientras ffmpeg intenta abrir la salida SRT y pasa a "connected" cuando
+# ffmpeg imprime "Output #0" (solo lo hace despues de abrir la salida, es
+# decir, con la conexion SRT ya establecida). /tmp/srt_last.log guarda las
+# ultimas lineas utiles de ffmpeg (sin el aviso "Invalid DTS", que es
+# normal y saldria miles de veces) para ver por que no conecta.
 while true; do
-    "$FFMPEG_BIN" -nostdin -loglevel warning \
+    echo connecting > /tmp/srt_state
+    : > /tmp/srt_last.log
+    "$FFMPEG_BIN" -nostdin -hide_banner -nostats -loglevel info \
         -rtsp_transport tcp -timeout "$IO_TIMEOUT_US" -i "$RTSP_LOCAL" \
         -c copy -f mpegts \
-        "$SRT_URL"
+        "$SRT_URL" 2>&1 | while IFS= read -r line; do
+            case "$line" in
+                *"Output #0"*) echo connected > /tmp/srt_state ;;
+                *DTS*|*dts*|*"Timestamps are unset"*) ;;
+                *) echo "$line" >> /tmp/srt_last.log ;;
+            esac
+        done
+    echo connecting > /tmp/srt_state
     sleep 3
 done
